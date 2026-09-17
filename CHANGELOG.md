@@ -7,8 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the versioning conventions described in [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) §5 (never
 decrease `versionCode`; the baseline is `versionCode` 20 / `versionName` 3.1.1).
 
-**Nothing in the `Unreleased` section has been released, and no APK has been produced from this
-repository yet.** See [TEST_REPORT.md](TEST_REPORT.md) §3 for that blocker.
+**Nothing in the `Unreleased` section has been released.** The build environment is now complete: the
+app assembles, `:app:testDebugUnitTest` runs **378 tests with 0 failures**, `:app:lintDebug` passes
+with **0 errors**, and a signed release APK is produced from `enhanced/integration`. See
+[TEST_REPORT.md](TEST_REPORT.md) §9 for the evidence and §9.5 for what is still untested.
 
 ---
 
@@ -62,8 +64,8 @@ assigned yet; the first enhanced release must be `versionCode` ≥ 21.
   (`ThemeSettingsScreen.kt`), and the save-path hook in `HomeViewModel.addLink`
   (`HomeViewModel.kt:233`). The cleaner is applied immediately before `normalizeUrl`, so cleaning and
   storage identity stay separate and any parse failure falls back to the original URL.
-- **Enhanced module contracts (not yet in this branch)** — on branch `feature/enhanced-modules`
-  (worktree `E:\Deepseek\wt-modules`), currently untracked there:
+- **Enhanced module contracts** — Android-free contracts, merged into `enhanced/integration` and
+  covered by 278 of their own unit tests:
   - `enhanced/capability/RuntimeCapabilities.kt` — `RuntimeCapabilities`, `CapabilityReport`,
     `Capability`, `CapabilityStatus`, `CapabilityNames`: what the device can actually do (SDK level,
     ABIs, notification/overlay permission, accessibility, server-resolver configuration) and a
@@ -92,6 +94,28 @@ assigned yet; the first enhanced release must be `versionCode` ≥ 21.
     disclosure string) and a `DisabledMediaResolver` default so the feature is inert until configured.
   - `enhanced/EnhancedModules.kt` — `EnhancedFeatureDefaults` and `EnhancedPreferenceKeys`.
   - Matching unit tests under `app/src/test/java/com/linksi/app/enhanced/`.
+
+- **Optional private server resolver** — `enhanced/resolver/HttpMediaResolver.kt` and
+  `ResolverResponseParser.kt` (18 tests). Inert unless explicitly enabled *and* pointed at an HTTPS
+  address; sends exactly one thing, the URL the user asked about, never clipboard or accessibility
+  content; carries the API key in the `Authorization` header rather than the query string so it cannot
+  leak through proxy or access logs; every failure is a returned value, so a dead server can only
+  disable the download action.
+- **Enhanced Features settings screen** — `ui/screens/EnhancedSettingsScreen.kt` plus the module
+  preferences in `DataStoreExtensions.kt` and `SettingsViewModel.kt`: one place to enable smart
+  detection, the floating bubble, accessibility assistance, download notifications and the private
+  server. Permission-dependent toggles send the user to the relevant Android settings page instead of
+  pretending the permission was granted, and the screen includes the section 58 accessibility
+  disclosure, the section 25.1 server disclosure and the section 68 download error strings.
+- **Signed release tooling** — `tools/build-release.ps1`: unit tests, lint and a signed
+  `:app:assembleRelease`, archived as `LinksiEnhanced_<version>_universal.apk` with a SHA256 sidecar
+  and a JSON build record (branch, commit, versionCode, versionName, size, hash). The signing password
+  is read from the credentials file, passed via environment variables only, never printed, and cleared
+  before the script exits.
+- **Private release signing key** — 4096-bit RSA, generated **outside** the repository
+  (`E:\Deepseek\keys\linksi-enhanced-release.jks`, SHA256 `1E:7F:FE:B4:...:96`, valid to 2054-02-02)
+  with credentials in a sibling file. It must be backed up: losing it means no future build can be
+  installed as an update, and it is never committed.
 
 ### Changed
 
