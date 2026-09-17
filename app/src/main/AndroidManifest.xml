@@ -7,7 +7,19 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!--
+      Enhanced modules. Every one of these is requested only when the user turns the matching
+      optional feature on (specification section 33); none is needed for normal link saving.
+      USE_EXACT_ALARM was removed: it is restricted to alarm/calendar apps and is unused by the code.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
 
     <application
@@ -70,6 +82,15 @@
 
         <receiver android:name=".utils.ReminderReceiver"
             android:exported="false" />
+
+        <!--
+          WorkManager runs long downloads in a foreground service. On API 34+ that service must
+          declare its type, otherwise Android throws when the download starts.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 

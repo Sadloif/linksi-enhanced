@@ -9,7 +9,9 @@ plugins {
 
 android {
     namespace 'com.linksi.app'
-    compileSdk 34
+    // 36 is required by androidx.media3 1.5.0+ (used by the optional media downloader) and is a
+    // build-time-only change: targetSdk stays at 34 so no runtime behaviour moves with it.
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.linksi.app"
@@ -30,6 +32,18 @@ android {
             storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
             keyAlias System.getenv("KEY_ALIAS") ?: ""
             keyPassword System.getenv("KEY_PASSWORD") ?: ""
+        }
+        // Optional override of the default debug signing config. AGP normally creates and uses
+        // ~/.android/debug.keystore, which is not writable in every environment (sandboxes, CI
+        // images with a read-only home). Setting DEBUG_KEYSTORE_PATH points it somewhere writable.
+        // When the variable is absent this block is skipped and AGP behaves exactly as before.
+        if (System.getenv("DEBUG_KEYSTORE_PATH")) {
+            debug {
+                storeFile file(System.getenv("DEBUG_KEYSTORE_PATH"))
+                storePassword System.getenv("DEBUG_KEYSTORE_PASSWORD") ?: "android"
+                keyAlias System.getenv("DEBUG_KEY_ALIAS") ?: "androiddebugkey"
+                keyPassword System.getenv("DEBUG_KEY_PASSWORD") ?: "android"
+            }
         }
     }
 
@@ -118,8 +132,9 @@ dependencies {
     // Kotlin Coroutines
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 
-    // Work Manager (for background metadata fetch)
-    implementation 'androidx.work:work-runtime-ktx:2.9.0'
+    // Work Manager (bin cleanup, and download work for Linksi Enhanced).
+    // 2.11.x fixes the Android 15 dataSync foreground-service timeout ANR present in 2.9.0.
+    implementation 'androidx.work:work-runtime-ktx:2.11.2'
     implementation 'androidx.hilt:hilt-work:1.2.0'
     ksp 'androidx.hilt:hilt-compiler:1.2.0'
 
