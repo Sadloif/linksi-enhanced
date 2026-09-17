@@ -223,14 +223,161 @@ artefact that looks exactly like a real crash.
 
 ---
 
-## 8. Ready-to-paste prompt for the next session
+## 8. The goal — recreate it in the new session
+
+Goals are **session-scoped**: the object below cannot be transferred, only recreated. It was paused
+(disarmed) at the end of the previous session so it would stop auto-continuing there.
+
+| | |
+|---|---|
+| previous goal id | `goal-246298fb-aaa4-40a9-a7e1-07f161ec602a` (reference only) |
+| phase when paused | active, 3 of 40 rounds used |
+| suggested round budget | 40 |
+
+**Objective, verbatim — pass this exact text to `create_goal`:**
+
+```text
+Deliver the Linksi Enhanced private fork per LINKSI_ENHANCED_REVISED_SPEC.md: keep baseline
+Linksi working, add isolated optional modules (URL cleaner integration, smart link detection +
+accessibility + floating bubble, quick action panel, universal media downloader with extractor
+abstraction, direct file downloader, optional server resolver), build and test a signed APK, and
+produce the required documentation set.
+```
+
+Two rules to carry over with it:
+
+- **Completion is evidence-based.** `TEST_REPORT.md` is the record of what is actually verified; an
+  item may only move off the open list with device- or build-level evidence, not by assertion. As of
+  the pause, four items remain open (§6), so the goal should be created **active**, not complete.
+- **Do not push to GitHub** until the owner says the work is final. Everything already pushed stays
+  as it is — never delete or force-push over it.
+
+---
+
+## 9. Ready-to-paste prompt for the next session
 
 > Continue the Linksi Enhanced private fork. Read `E:\Deepseek\Linksi\repo\SESSION_HANDOVER.md`
-> first — it has the layout, the exact build/emulator commands, the environment traps, and the
-> prioritised open-work list. Then read `TEST_REPORT.md` for what is actually verified.
+> first — it has the layout, the exact build/emulator commands, the environment traps, the goal text
+> to recreate, and the prioritised open-work list. Then read `TEST_REPORT.md` for what is actually
+> verified.
+>
+> Create the goal using the verbatim objective in §8 of that file, with a 40-round budget, and keep
+> working through the open list in order between my messages.
 >
 > Start with open item 1: the yt-dlp merged-download path stalls on the emulator (the audio stream
 > leaves a `.part` file). Determine whether the emulator's network is the cause by pushing a
-> multi-MB file through the app's own downloader, and report what you find. Keep working through the
-> open list in order. Do not push to GitHub until I say the work is final. Create a goal for this so
-> you keep going between my messages.
+> multi-MB file through the app's own downloader, and report what you find.
+>
+> Then move to open item 2 using my physical device — see §10 for how to attach it. Confirming the
+> five target sites on a real connection is worth more than anything else on the list.
+>
+> Do not push to GitHub until I say the work is final.
+
+---
+
+## 10. Testing on a physical Android device
+
+The owner's target device is an **OPPO Reno15 / ColorOS 16 / Android 16 (arm64)**. This is the
+highest-value testing available, because the emulator's datacentre IP is blocked by Instagram,
+Facebook, TikTok, Pinterest and Reddit, and because nothing has run on real hardware yet.
+
+### 10.1 Which APK to install
+
+`artifacts\releases\LinksiEnhanced_3.1.1-enhanced.2_arm64-v8a.apk` (36.14 MB) — the phone is arm64,
+and this is far smaller than the 119.65 MB universal build. If the phone is being handed the file
+rather than attached by cable, that file plus its `.sha256` sidecar is what to send.
+
+### 10.2 Option A — USB (simplest if the phone can be plugged into this PC)
+
+1. On the phone: **Settings → About device → Build number**, tap it **7 times** to unlock Developer
+   options.
+2. **Settings → System → Developer options → USB debugging** → on.
+3. Plug the phone into the PC; choose **File transfer / MTP** as the USB mode if prompted (OPPO
+   sometimes defaults to "Charge only", and adb does not appear until the mode changes).
+4. Accept the **"Allow USB debugging?"** prompt on the phone. Tick "Always allow" so it does not
+   reappear.
+5. Verify from here:
+
+```powershell
+$adb='E:\Deepseek\Linksi\toolchain\android-sdk\platform-tools\adb.exe'
+& $adb devices -l          # the phone should appear as a device, not "unauthorized"
+```
+
+### 10.3 Option B — wireless debugging (no cable; Android 11+)
+
+The phone and this PC must be on the **same Wi-Fi network**.
+
+1. Phone: **Developer options → Wireless debugging** → on.
+2. Tap **Pair device with pairing code**. It shows an address like `192.168.1.50:37 421` and a
+   6-digit code.
+3. From here:
+
+```powershell
+& $adb pair 192.168.1.50:37421     # enter the 6-digit code when prompted
+& $adb connect 192.168.1.50:5555   # the *different* port shown on the Wireless debugging screen
+& $adb devices -l
+```
+
+Notes for ColorOS: keep the Wireless debugging screen open while pairing; the pairing port changes
+every time the screen is reopened. Some OPPO builds also need **Developer options → Disable
+permission monitoring** turned on for `adb install` to succeed, and aggressive battery management can
+drop the wireless connection when the screen sleeps.
+
+### 10.4 What to run once the device is attached
+
+With a single device attached, every command below is identical to the emulator flow — drop the
+`emulator-5554` assumption and adb will pick the only device:
+
+```powershell
+$repo='E:\Deepseek\Linksi\repo'
+$apk='E:\Deepseek\Linksi\artifacts\releases\LinksiEnhanced_3.1.1-enhanced.2_arm64-v8a.apk'
+
+# 1. does the release build install and launch on real hardware, under R8?
+& $adb install -r "$apk"
+& $adb shell am start -n com.linksi.app/com.linksi.app.MainActivity
+
+# 2. the instrumented suites, one at a time, against the *debug* build
+& $adb install -r -t "$repo\app\build\outputs\apk\debug\app-arm64-v8a-debug.apk"
+& $adb install -r -t "$repo\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk"
+& $adb shell am instrument -w -e class com.linksi.app.CoreFlowsSmokeTest `
+      com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
+& $adb shell am instrument -w -e class com.linksi.app.DownloadEngineInstrumentedTest `
+      com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
+& $adb shell am instrument -w -e class com.linksi.app.YtDlpMediaSmokeTest `
+      com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+`YtDlpMediaSmokeTest` is the one that settles open items 1 and 2: on a residential connection the
+YouTube candidate should stop being refused and the merged download should complete. **Read the
+logcat, not the summary line** (`OK (N tests)` hides assumption-skipped tests).
+
+### 10.5 The manual checks only real hardware can answer
+
+- **The five target sites.** Share or paste a public Instagram Reel, Facebook video, TikTok, Pinterest
+  pin and Reddit post; confirm the panel offers real formats and that a download produces a playable
+  file in Downloads.
+- **The floating bubble.** Enable *Settings → Enhanced features → Floating linksi bubble*, grant
+  "display over other apps", enable the accessibility service, then copy a link in Chrome. Does the
+  bubble appear, snap, auto-dismiss, and open the panel on tap? This is the Android 14+/15
+  background-activity-launch path that has never been verified.
+- **OEM background limits (ColorOS).** Start a large download, lock the screen, wait, and confirm it
+  finishes. If it is killed, record which setting had to change (battery optimisation, "allow
+  background activity") — `research\ANDROID16_REQUIREMENTS.md` §9 documents the known OPPO behaviour.
+- **Edge-to-edge and predictive back**, which matter more once `targetSdk` moves to 36.
+- **Update over an older private build**: install `3.1.1-enhanced.1`, create data, install
+  `3.1.1-enhanced.2` over it, and confirm the data survives (same `applicationId`, same keystore,
+  higher `versionCode` — this is the private-key update path working).
+
+### 10.6 Clean-up
+
+The debug build installs as a **separate app** (`com.linksi.app.debug`) from the release build
+(`com.linksi.app`), so both can sit on the phone side by side. Uninstall whichever is not needed:
+
+```powershell
+& $adb uninstall com.linksi.app.debug
+& $adb uninstall com.linksi.app.debug.test
+```
+
+Do **not** let anything uninstall the owner's existing official Linksi installation — that build is
+signed with a different key and its data can only be preserved by exporting first
+(`UPSTREAM_UPDATE_GUIDE.md` and the testing plan §76 cover the safe path).
