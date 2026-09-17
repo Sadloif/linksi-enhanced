@@ -7,6 +7,9 @@ app/release/
 
 .gradle/
 
+# Kotlin compiler session and error logs produced by the build
+.kotlin/
+
 # IDE files
 .idea/
 *.iml

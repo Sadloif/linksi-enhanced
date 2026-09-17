@@ -83,14 +83,71 @@
         <receiver android:name=".utils.ReminderReceiver"
             android:exported="false" />
 
-        <!--
-          WorkManager runs long downloads in a foreground service. On API 34+ that service must
-          declare its type, otherwise Android throws when the download starts.
-        -->
+        <!-- WorkManager runs long downloads in a foreground service. On API 34+ that service must
+             declare its type, otherwise Android throws when the download starts. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!--
+          OPTIONAL MODULE: smart link detection, accessibility service and floating bubble
+          (specification sections 11, 12 and 33; research note ANDROID16_REQUIREMENTS.md sections 7
+          and 8). Nothing below ever runs unless the user turns the matching feature on: there is no
+          boot receiver, no auto-start and no clipboard access from any of it. Normal saving,
+          sharing and browsing work identically with all three components absent or disabled.
+        -->
+
+        <!--
+          The optional accessibility assistance. The system binds this service, so it must be
+          exported, but BIND_ACCESSIBILITY_SERVICE means only the system (or a user who explicitly
+          enables it in Settings) can ever bind it. `isAccessibilityTool` is deliberately not set:
+          this is not a disability-support app, and claiming otherwise is a Play policy violation.
+          `settingsActivity` is declared in the XML config so a user can jump back into Linksi.
+        -->
+        <service
+            android:name=".enhanced.service.LinksiAccessibilityService"
+            android:exported="true"
+            android:label="@string/enhanced_accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!--
+          The optional floating bubble. It is a foreground service because Android requires a
+          visible notification for an overlay that outlives the app, and because Android 15 narrowed
+          the SYSTEM_ALERT_WINDOW background-start exemption to apps with a *currently visible*
+          overlay. `specialUse` is the correct type for a user-visible overlay that is not media,
+          location, data sync or any other declared category; the subtype property is mandatory for
+          that type on API 34+ and is omitted on older releases where the attribute does not exist.
+        -->
+        <service
+            android:name=".enhanced.bubble.BubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="optional floating link bubble requested by the user" />
+        </service>
+
+        <!--
+          The quick action panel the bubble opens. Not exported: only Linksi itself starts it, and
+          it needs no intent filter. It is a normal focusable activity on purpose - the panel may
+          only read the clipboard once it holds input focus (section 11.1).
+        -->
+        <activity
+            android:name=".enhanced.ui.QuickPanelActivity"
+            android:exported="false"
+            android:label="@string/enhanced_quick_panel_title"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="${applicationId}.quickpanel"
+            android:theme="@style/Theme.Linksi.QuickPanel" />
 
     </application>
 

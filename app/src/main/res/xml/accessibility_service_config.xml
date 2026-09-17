@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuration for the optional Linksi accessibility assistance service
+  (specification sections 11.2 and 11.3, research note ANDROID16_REQUIREMENTS.md section 7.3).
+
+  Deliberate choices:
+
+  * accessibilityEventTypes is limited to the four event kinds a copy action can produce. It is
+    NOT typeAllMask: narrower scope is both faster and an explicit minimum-scope signal.
+  * accessibilityFeedbackType is feedbackGeneric - this service shows no feedback of its own and
+    is not an accessibility tool for people with disabilities.
+  * notificationTimeout throttles delivery to at most one event per 100 ms. Accessibility
+    callbacks run on the main thread, so this is what keeps the feature cheap (sections 60, 61).
+  * flagRetrieveInteractiveWindows is required for TYPE_WINDOW_CONTENT_CHANGED and for
+    event.source to be populated on multi-window devices.
+  * flagRequestFilterKeyEvents is deliberately ABSENT, and canRequestFilterKeyEvents is absent
+    with it: this feature has no business seeing keystrokes.
+  * canRetrieveWindowContent is true because the node label ("Copy link") must be read. Nothing is
+    uploaded, stored or logged; only an actionable HTTP(S) URL is ever extracted, and only to
+    decide whether to show the optional bubble.
+  * isAccessibilityTool is NOT set. This is not a disability-support app, and declaring it would
+    both be untrue and a Play policy violation.
+  * No android:packageNames: the user chooses ignored packages in Settings, and the service
+    configuration cannot be edited per user.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/enhanced_accessibility_service_description"
+    android:summary="@string/enhanced_accessibility_service_summary"
+    android:settingsActivity="com.linksi.app.MainActivity"
+    android:accessibilityEventTypes="typeViewClicked|typeViewTextSelectionChanged|typeWindowContentChanged|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+    android:notificationTimeout="100"
+    android:canRetrieveWindowContent="true" />

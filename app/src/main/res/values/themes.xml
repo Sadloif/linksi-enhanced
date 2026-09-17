@@ -20,4 +20,21 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>
+
+    <!--
+      Compact dialog-sized window for the optional quick action panel the floating bubble opens.
+      It is a normal, focusable activity: the panel must take window focus before it is allowed to
+      read the clipboard (specification section 11.1, research note section 7.2), which is exactly
+      what android:windowIsFloating and the dimmed background give it. The panel is deliberately
+      small so it looks like a popup rather than the whole app, and it never appears unless the
+      user tapped the bubble.
+    -->
+    <style name="Theme.Linksi.QuickPanel" parent="Theme.Material3.DayNight.Dialog">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
 </resources>
