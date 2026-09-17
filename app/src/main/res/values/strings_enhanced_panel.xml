@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Strings for the enhanced quick action panel (specification sections 9.5, 13, 14, 65 and 67).
+
+  Kept in a dedicated file so the baseline res/values/strings.xml is never touched by the
+  enhanced modules. Names are all prefixed with `quick_panel_` to stay out of the way of the
+  existing keys.
+-->
+<resources>
+
+    <!-- Header -->
+    <string name="quick_panel_title">What you can do</string>
+    <string name="quick_panel_original_url">Original URL</string>
+    <string name="quick_panel_cleaned_url">Cleaned URL</string>
+    <string name="quick_panel_show_original">Show original</string>
+    <string name="quick_panel_show_cleaned">Show cleaned</string>
+
+    <!-- Cleaning result line. The plural carries its own leading space so an empty result adds nothing. -->
+    <plurals name="quick_panel_removed_params">
+        <item quantity="one"> · removed %1$d tracking parameter</item>
+        <item quantity="other"> · removed %1$d tracking parameters</item>
+    </plurals>
+
+    <!-- Group headers (specification section 13) -->
+    <string name="quick_panel_section_save">Save</string>
+    <string name="quick_panel_section_download">Download</string>
+    <string name="quick_panel_section_actions">Actions</string>
+
+    <!-- Actions -->
+    <string name="quick_panel_clean_url">Clean URL</string>
+    <string name="quick_panel_clean_url_desc">Remove known tracking parameters</string>
+    <string name="quick_panel_copy_clean_url">Copy clean URL</string>
+    <string name="quick_panel_share_clean_url">Share cleaned URL</string>
+    <string name="quick_panel_save_link">Save link</string>
+    <string name="quick_panel_download_image">Download image</string>
+    <string name="quick_panel_download_file">Download file</string>
+    <string name="quick_panel_copy_url">Copy URL</string>
+    <string name="quick_panel_share">Share</string>
+    <string name="quick_panel_share_via">Share via</string>
+
+    <!--
+      Link options sheet rows and their preview dialog. These are also hosted here rather than in
+      res/values/strings.xml so this module never edits a baseline file.
+    -->
+    <string name="copy_clean_url">Copy clean URL</string>
+    <string name="clean_url">Clean URL</string>
+    <string name="clean_url_desc">Remove known tracking parameters</string>
+    <string name="clean_url_original_label">Original URL</string>
+    <string name="clean_url_cleaned_label">Cleaned URL</string>
+    <string name="clean_url_nothing_removed">Nothing needed removing.</string>
+    <string name="clean_url_unavailable">This link cannot be cleaned; its original address is kept unchanged.</string>
+    <string name="clean_url_copy_action">Copy</string>
+    <string name="clean_url_close_action">Close</string>
+    <plurals name="clean_url_removed_params">
+        <item quantity="one">Removed %1$d tracking parameter</item>
+        <item quantity="other">Removed %1$d tracking parameters</item>
+    </plurals>
+
+</resources>

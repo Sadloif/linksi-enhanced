@@ -11,7 +11,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.LinkOff
+import androidx.compose.material.icons.outlined.NotificationImportant
 import androidx.compose.material3.*
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +44,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.sp
@@ -51,6 +55,7 @@ import com.android.volley.toolbox.ImageRequest
 import com.linksi.app.R
 import com.linksi.app.domain.model.Folder
 import com.linksi.app.domain.model.Link
+import com.linksi.app.utils.UrlCleaner
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -880,6 +885,7 @@ fun LinkOptionsSheet(
     var showNoteSheet by remember { mutableStateOf(false) }
     var showFolderPicker by remember { mutableStateOf(false) }
     var showTagSheet by remember { mutableStateOf(false) }
+    var showCleanUrlDialog by remember { mutableStateOf(false) }
 
     fun dismiss() {
         scope.launch { sheetState.hide(); onDismiss() }
@@ -1179,6 +1185,35 @@ fun LinkOptionsSheet(
                         onClick = { showTagSheet = true }
                     )
 
+                    // ── Copy clean URL (spec 9.5) ─────────────────────
+                    // Cleaning is self contained: it reads link.url and the clipboard only, so it
+                    // needs no extra callback from HomeScreen.
+                    OptionsFullRow(
+                        icon = Icons.Outlined.ContentCopy,
+                        title = stringResource(R.string.copy_clean_url),
+                        subtitle = UrlCleaner.cleanOrSelf(link.url),
+                        onClick = {
+                            val clipboard = context.getSystemService(
+                                android.content.ClipboardManager::class.java
+                            )
+                            clipboard?.setPrimaryClip(
+                                android.content.ClipData.newPlainText(
+                                    "url",
+                                    UrlCleaner.cleanOrSelf(link.url)
+                                )
+                            )
+                            dismiss()
+                        }
+                    )
+
+                    // ── Clean URL (spec 9.5) ──────────────────────────
+                    OptionsFullRow(
+                        icon = Icons.Outlined.LinkOff,
+                        title = stringResource(R.string.clean_url),
+                        subtitle = stringResource(R.string.clean_url_desc),
+                        onClick = { showCleanUrlDialog = true }
+                    )
+
                     // ── Pin to Top ────────────────────────────────────
                     OptionsFullRow(
                         icon = if (link.isPinned) Icons.Outlined.PushPin else Icons.Outlined.PushPin,
@@ -1244,6 +1279,101 @@ fun LinkOptionsSheet(
             onDeleteTagGlobally = onDeleteTagGlobally
         )
     }
+
+    if (showCleanUrlDialog) {
+        CleanUrlPreviewDialog(
+            originalUrl = link.url,
+            onDismiss = { showCleanUrlDialog = false },
+            onUseCleaned = { cleaned ->
+                val clipboard = context.getSystemService(
+                    android.content.ClipboardManager::class.java
+                )
+                clipboard?.setPrimaryClip(
+                    android.content.ClipData.newPlainText("url", cleaned)
+                )
+                showCleanUrlDialog = false
+                dismiss()
+            }
+        )
+    }
+}
+
+/**
+ * A small, dependency free preview of what [UrlCleaner] did to [originalUrl] (specification 9.5).
+ *
+ * Deliberately a small AlertDialog preview rather than a Snackbar or a toast: the sheet has no
+ * SnackbarHost of its own, nothing new has to be threaded through HomeScreen, and the user can copy
+ * the result in one tap. When the cleaner rejects the URL the dialog says so instead of offering a
+ * cleaned URL it does not have.
+ */
+@Composable
+private fun CleanUrlPreviewDialog(
+    originalUrl: String,
+    onDismiss: () -> Unit,
+    onUseCleaned: (String) -> Unit
+) {
+    val result = remember(originalUrl) { UrlCleaner.clean(originalUrl) }
+    val cleanedUrl = (result as? UrlCleaner.Result.Cleaned)?.cleanedUrl
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.clean_url)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.clean_url_original_label),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = originalUrl,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                if (cleanedUrl == null) {
+                    Text(
+                        text = stringResource(R.string.clean_url_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.clean_url_cleaned_label),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = cleanedUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    val removed = (result as UrlCleaner.Result.Cleaned).removedParameters.size
+                    Text(
+                        text = if (removed == 0) {
+                            stringResource(R.string.clean_url_nothing_removed)
+                        } else {
+                            pluralStringResource(R.plurals.clean_url_removed_params, removed, removed)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (cleanedUrl != null) {
+                TextButton(onClick = { onUseCleaned(cleanedUrl) }) {
+                    Text(stringResource(R.string.clean_url_copy_action))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.clean_url_close_action))
+            }
+        }
+    )
 }
 
 //    if (showFolderPicker) {
