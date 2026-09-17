@@ -469,3 +469,94 @@ Running two instrumented test suites against one emulator **at the same time** p
 under the other, so the test APK and the app APK stop matching. That is a harness artefact, not an
 app defect, but it is indistinguishable from a real crash unless the logcat is read carefully.
 **Serialise device test runs**: one suite at a time, reinstall before each.
+
+---
+
+## 12. Addendum 4 — site extraction (yt-dlp), and a release-only defect it exposed
+
+### 12.1 What was added
+
+`MediaExtractor` gained a second implementation behind the existing abstraction:
+`YtDlpExtractor` (priority 50, below the direct-file extractor's 100), with `YtDlpInfoMapper`,
+`YtDlpRuntime` (lazy, off-main-thread, failure-sticky initialisation), `YtDlpDownloader` (executes
+yt-dlp, streams progress, then publishes through the existing `DownloadSink`/MediaStore path) and
+`YtDlpProgressParser`, plus `YtDlpMediaSmokeTest` on device. `youtubedl-android` `library:0.17.3` and
+`:ffmpeg:0.17.3` (GPL-3.0 — see DEPENDENCY_REVIEW §8) are now dependencies, with ABI splits
+(`arm64-v8a` + universal), `useLegacyPackaging = true` and ProGuard keeps.
+
+### 12.2 A real bug the agent found before I could
+
+`YoutubeDL.init()` unpacks CPython and yt-dlp only. The `:ffmpeg` artifact has a **separate** entry
+point, `com.yausername.ffmpeg.FFmpeg.init(context)`. Without calling both, `packages/ffmpeg` never
+exists and every *merged* download fails with "ffmpeg not found" — after the app has otherwise looked
+healthy. `YtDlpRuntime.ensureReady()` now calls both.
+
+### 12.3 A release-only defect found by running the signed APK
+
+Debug builds worked. The **signed release APK** — the actual deliverable — could not start the engine
+at all:
+
+```text
+W YtDlpRuntime: the bundled yt-dlp engine could not be started
+W YtDlpRuntime: java.lang.ExceptionInInitializerError
+    at com.yausername.youtubedl_common.utils.ZipUtils.unzip
+    at com.yausername.youtubedl_android.YoutubeDL.initPython
+  Caused by: java.lang.RuntimeException: class ga.a is not a concrete class
+    at ga.f.<clinit>
+```
+
+The release R8 mapping identified the obfuscated names:
+
+```text
+org.apache.commons.compress.archivers.zip.ExtraFieldUtils -> ga.f
+org.apache.commons.compress.archivers.zip.AsiExtraField   -> ga.a
+```
+
+commons-compress registers its zip extra-field handlers by reflection, so R8 obfuscating or merging
+those classes makes `ExtraFieldUtils`' static initialiser throw. The ProGuard rules kept
+`org.apache.commons.io.**` but **not** `org.apache.commons.compress.**`. The consequence was the worst
+possible shape for a bug: **every site download worked in debug and failed in release**, because all
+five site extractors depend on that unpack step.
+
+Two things about how this behaved are worth recording:
+
+- **Failure isolation worked.** The app did not crash. `YtDlpRuntime` catches `Throwable` and reports a
+  status, so the panel degraded to "the engine could not be started" and every other action kept
+  working. That is specification section 26 doing its job.
+- **No unit test could have caught it.** It only exists in a minified build, on a device.
+
+**Fix and verification.** `-keep class org.apache.commons.compress.** { *; }` was added to
+`proguard-rules.pro` and the release rebuilt. Reinstalling the signed APK and asking it to analyse a
+YouTube URL now shows the Python interpreter executing:
+
+```text
+granted { execute } .../data/com.linksi.app/no_backup/youtubedl-android/packages/python/usr/lib/libpython3.11.so.1.0
+granted { execute } .../packages/python/usr/lib/python3.11/lib-dynload/zlib.cpython-311.so
+```
+
+and no `ExceptionInInitializerError`. The panel then correctly detected the source as **YouTube** and
+hid the DOWNLOAD row entirely, because extraction returned `LOGIN_REQUIRED` (YouTube blocks
+datacentre IPs — `[youtube] … Please sign in`). Showing no download control for something that cannot
+be downloaded is specification section 67 working as intended.
+
+### 12.4 Release artifacts for this build
+
+| Artifact | Size | SHA256 |
+|---|---|---|
+| `LinksiEnhanced_3.1.1-enhanced.2_arm64-v8a.apk` | 37,900,688 B (36.14 MB) | `ECA4E4A35B87…6D040` |
+| `LinksiEnhanced_3.1.1-enhanced.2_universal.apk` | 125,458,401 B (119.65 MB) | `B49CA7619146…A71E3` |
+
+The size is the bundled Python interpreter plus one FFmpeg per ABI; before this dependency the
+release APK was 5.21 MB. `versionCode` is now 22.
+
+### 12.5 Still unverified
+
+- **The mux path on a device.** Downloading a video-only stream and merging it with FFmpeg was
+  started on the emulator but the Python subprocess hung and had to be killed; no merged file was
+  ever observed. The selector, mux flag, naming and progress parsing are unit tested; the merge
+  itself is not verified end to end.
+- **MediaStore publish of a *muxed* file**, and the notification/WorkManager progress path.
+- **The five target sites themselves** (Instagram, Facebook, TikTok, Pinterest, Reddit) were probed
+  only for "returns a value rather than throwing" — none was confirmed to extract real formats,
+  because the emulator's IP is blocked by most of them. A physical device on a residential connection
+  is required for that, and is the single most valuable next test.
