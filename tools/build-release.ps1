@@ -121,39 +121,68 @@ if ($code -ne 0) {
 }
 
 # ── archive ───────────────────────────────────────────────────────────────────
-$apk = Get-ChildItem (Join-Path $RepoRoot 'app\build\outputs\apk\release') -Filter *.apk -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notlike '*unsigned*' } | Select-Object -First 1
-if (-not $apk) { throw "no signed release APK found under app\build\outputs\apk\release" }
+# The downloader's ABI splits mean assembleRelease emits one APK per ABI plus a universal one, so
+# archive every signed artifact rather than guessing which single file is "the" APK.
+$apks = @(Get-ChildItem (Join-Path $RepoRoot 'app\build\outputs\apk\release') -Filter *.apk -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notlike '*unsigned*' })
+if (-not $apks) { throw "no signed release APK found under app\build\outputs\apk\release" }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $safeVersion = $versionName -replace '[^A-Za-z0-9._-]', '_'
-$target = Join-Path $OutDir "LinksiEnhanced_${safeVersion}_universal.apk"
-Copy-Item $apk.FullName $target -Force
 
-$hash = (Get-FileHash $target -Algorithm SHA256).Hash
-$size = (Get-Item $target).Length
-$hash | Set-Content "$target.sha256" -Encoding ASCII
+function Get-AbiLabel([string]$fileName) {
+    # app-arm64-v8a-release.apk -> arm64-v8a ; app-universal-release.apk -> universal
+    if ($fileName -match 'universal') { return 'universal' }
+    if ($fileName -match '-(arm64-v8a|armeabi-v7a|x86_64|x86)-') { return $matches[1] }
+    return 'universal'
+}
 
-$record = [ordered]@{
+$record = [System.Collections.Generic.List[object]]::new()
+$primaryTarget = $null
+
+foreach ($apk in $apks | Sort-Object Name) {
+    $label = Get-AbiLabel $apk.Name
+    $target = Join-Path $OutDir "LinksiEnhanced_${safeVersion}_${label}.apk"
+    Copy-Item $apk.FullName $target -Force
+
+    $hash = (Get-FileHash $target -Algorithm SHA256).Hash
+    $size = (Get-Item $target).Length
+    $hash | Set-Content "$target.sha256" -Encoding ASCII
+
+    Write-Host ""
+    Write-Host ("=== ARCHIVED ({0}) ===" -f $label)
+    Write-Host ("  apk    : {0}" -f (Split-Path $target -Leaf))
+    Write-Host ("  size   : {0} bytes ({1:N2} MB)" -f $size, ($size / 1MB))
+    Write-Host ("  sha256 : {0}" -f $hash)
+
+    # The universal APK is the one to attach to a release by default.
+    if ($label -eq 'universal') { $primaryTarget = $target }
+
+    $record.Add([ordered]@{
+        abi         = $label
+        apk         = (Split-Path $target -Leaf)
+        sizeBytes   = $size
+        sha256      = $hash
+    })
+}
+
+if (-not $primaryTarget) { $primaryTarget = (Join-Path $OutDir "LinksiEnhanced_${safeVersion}_arm64-v8a.apk") }
+
+$buildRecord = [ordered]@{
     builtAtUtc   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     branch       = $branch
     commit       = $commit
     uncommitted  = $dirty
     versionName  = $versionName
     versionCode  = $versionCode
-    apk          = (Split-Path $target -Leaf)
-    sizeBytes    = $size
-    sha256       = $hash
     signingAlias = $keyAlias
+    artifacts    = $record
 }
-$record | ConvertTo-Json | Set-Content (Join-Path $OutDir 'latest-build.json') -Encoding UTF8
+$buildRecord | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $OutDir 'latest-build.json') -Encoding UTF8
 
 Write-Host ""
-Write-Host "=== ARCHIVED ==="
-Write-Host "  apk    : $target"
-Write-Host ("  size   : {0} bytes ({1:N2} MB)" -f $size, ($size / 1MB))
-Write-Host "  sha256 : $hash"
-Write-Host "  record : $(Join-Path $OutDir 'latest-build.json')"
+Write-Host ("  record : {0}" -f (Join-Path $OutDir 'latest-build.json'))
+Write-Host ("  release asset candidate: {0}" -f (Split-Path $primaryTarget -Leaf))
 
 # Do not leave signing material in the environment of the caller's shell.
 Remove-Item Env:KEYSTORE_PASSWORD, Env:KEY_PASSWORD -ErrorAction SilentlyContinue
