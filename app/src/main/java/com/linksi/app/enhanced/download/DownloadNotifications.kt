@@ -1,16 +1,19 @@
 package com.linksi.app.enhanced.download
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.ForegroundInfo
 import com.linksi.app.R
 import com.linksi.app.enhanced.media.MediaError
@@ -101,9 +104,7 @@ class DownloadNotifications @Inject constructor(
     ) {
         if (!canNotify()) return
         if (!throttle.shouldPost(downloadId, state, force)) return
-        runCatching {
-            manager.notify(notificationId(downloadId), progressNotification(downloadId, title, state))
-        }
+        post(notificationId(downloadId), progressNotification(downloadId, title, state))
     }
 
     fun notifyComplete(downloadId: String, displayName: String, location: String?) {
@@ -121,7 +122,7 @@ class DownloadNotifications @Inject constructor(
             .apply { contentIntent()?.let { setContentIntent(it) } }
             .build()
 
-        runCatching { manager.notify(resultNotificationId(downloadId), notification) }
+        post(resultNotificationId(downloadId), notification)
     }
 
     fun notifyFailed(downloadId: String, displayName: String, error: MediaError) {
@@ -141,7 +142,7 @@ class DownloadNotifications @Inject constructor(
             .apply { contentIntent()?.let { setContentIntent(it) } }
             .build()
 
-        runCatching { manager.notify(resultNotificationId(downloadId), notification) }
+        post(resultNotificationId(downloadId), notification)
     }
 
     /** Removes both the progress and the result notification for [downloadId]. */
@@ -155,7 +156,37 @@ class DownloadNotifications @Inject constructor(
 
     /** False when the user has notifications off; never prompts, never throws. */
     fun canNotify(): Boolean =
-        runCatching { manager.areNotificationsEnabled() }.getOrDefault(false)
+        hasPostPermission() && runCatching { manager.areNotificationsEnabled() }.getOrDefault(false)
+
+    /**
+     * The runtime `POST_NOTIFICATIONS` check. Below API 33 the permission does not exist and posting
+     * is always allowed, so this returns true.
+     */
+    private fun hasPostPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Posts a notification. Best effort by design: the permission can be revoked between the check
+     * and the call, and a dropped notification must never fail a download.
+     *
+     * The permission test is written inline rather than calling [hasPostPermission] because lint's
+     * `MissingPermission` check requires the `checkSelfPermission` guard to be visible in the method
+     * that calls `notify`.
+     */
+    private fun post(id: Int, notification: Notification) {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) return
+
+        try {
+            manager.notify(id, notification)
+        } catch (e: SecurityException) {
+            // Revoked between the check and the post. Nothing to report and nothing to fail.
+        }
+    }
 
     fun notificationId(downloadId: String): Int = stableId(PROGRESS_TAG + downloadId)
 

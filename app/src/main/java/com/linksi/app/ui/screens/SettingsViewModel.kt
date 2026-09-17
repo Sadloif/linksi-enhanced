@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.linksi.app.data.repository.LinkRepository
+import com.linksi.app.enhanced.detect.SmartLinkDetector
 import com.linksi.app.utils.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -77,7 +78,8 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val repository: LinkRepository,
     private val backgroundImportManager: BackgroundImportManager,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val smartLinkDetector: SmartLinkDetector
 ) : ViewModel() {
     enum class ModelStatus { UNKNOWN, ACTIVE, ERROR }
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -452,23 +454,27 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    // These three delegate to SmartLinkDetector, which persists the same preference *and* reacts to
+    // it: switching the bubble off actually stops the running service instead of only writing a value
+    // the feature would notice later. SmartLinkDetector.setFloatingBubbleEnabled(false) calls
+    // stopBubble() internally.
     fun setSmartLinkDetection(enabled: Boolean) {
         viewModelScope.launch {
-            context.dataStore.edit { it[ENHANCED_SMART_DETECTION] = enabled }
+            smartLinkDetector.setSmartDetectionEnabled(enabled)
             _uiState.update { it.copy(smartLinkDetection = enabled) }
         }
     }
 
     fun setFloatingBubble(enabled: Boolean) {
         viewModelScope.launch {
-            context.dataStore.edit { it[ENHANCED_FLOATING_BUBBLE] = enabled }
+            smartLinkDetector.setFloatingBubbleEnabled(enabled)
             _uiState.update { it.copy(floatingBubble = enabled) }
         }
     }
 
     fun setAccessibilityAssistance(enabled: Boolean) {
         viewModelScope.launch {
-            context.dataStore.edit { it[ENHANCED_ACCESSIBILITY] = enabled }
+            smartLinkDetector.setAccessibilityAssistanceEnabled(enabled)
             _uiState.update { it.copy(accessibilityAssistance = enabled) }
         }
     }
