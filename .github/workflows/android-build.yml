@@ -1,0 +1,191 @@
+# Linksi Enhanced — private-fork CI build (specification section 40).
+#
+# NOTE: .github/workflows/android.yml is the UPSTREAM workflow. It is deliberately left untouched
+# and is not modified or replaced by this file. This workflow is additive.
+#
+# Secret handling: no secret is ever echoed, printed or written to a log. The signing values are
+# passed to Gradle only through the environment, and a step-level guard only reports *whether* the
+# secrets exist (never their contents).
+
+name: Android build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+      - 'release/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: test, lint and assemble
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. JDK 17 (temurin) ──────────────────────────────────────────────────
+      - name: Set up JDK 17 (temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # ── 3. Gradle with dependency/build caching ──────────────────────────────
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      # ── 4. the wrapper must be executable on Linux ───────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # ── 5. unit tests ────────────────────────────────────────────────────────
+      # Runs the JVM unit tests in the Android module (the URL cleaner/normalizer tests and, once
+      # they are part of this branch, the enhanced-module tests). No device or emulator is required.
+      - name: Run unit tests
+        run: ./gradlew test --stacktrace --console=plain
+
+      # ── 6. lint ──────────────────────────────────────────────────────────────
+      # continue-on-error: lint findings are reported (and the reports are uploaded) without
+      # blocking the APK artifacts. Remove this line once the baseline warnings are triaged.
+      - name: Run lint
+        continue-on-error: true
+        run: ./gradlew lint --stacktrace --console=plain
+
+      # ── 7. debug APK ─────────────────────────────────────────────────────────
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace --console=plain
+
+      # ── 8. do the signing secrets exist? ─────────────────────────────────────
+      # `secrets` is not available in a step-level `if:`, so the check happens here and the result
+      # is published as a step output. Only a yes/no is emitted — never a value.
+      # Secrets are also gated on the event not being a pull request, so a fork PR can never reach
+      # the signing steps.
+      - name: Detect release signing secrets
+        id: signing
+        env:
+          HAS_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+          HAS_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD != '' }}
+          HAS_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS != '' }}
+          HAS_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD != '' }}
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ "$IS_PR" = "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Pull-request event: signing is disabled for this run."
+            exit 0
+          fi
+          if [ "$HAS_KEYSTORE" = "true" ] && [ "$HAS_PASSWORD" = "true" ] && [ "$HAS_ALIAS" = "true" ] && [ "$HAS_KEY_PASSWORD" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "All four release signing secrets are present: a signed release will be built."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "One or more release signing secrets are absent: an UNSIGNED release will be built."
+          fi
+
+      # ── 9a. signed release (only when every signing secret exists) ───────────
+      # The keystore is decoded into a gitignored path; the four values are passed to Gradle through
+      # the environment variables app/build.gradle already reads. The secret values are referenced
+      # only in `env:` blocks, which GitHub masks in logs.
+      - name: Decode release keystore
+        if: ${{ steps.signing.outputs.enabled == 'true' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/linksi-release.jks
+          test -s app/linksi-release.jks
+          echo "Keystore decoded ($(wc -c < app/linksi-release.jks) bytes)."
+
+      - name: Build signed release APK
+        if: ${{ steps.signing.outputs.enabled == 'true' }}
+        env:
+          KEYSTORE_PATH: app/linksi-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace --console=plain
+
+      # ── 9b. unsigned release (secrets absent) ────────────────────────────────
+      # assembleRelease is still exercised, but the checked-in build file cannot produce an unsigned
+      # APK because its release build type always points at signingConfigs.release. An init script is
+      # used instead of editing app/build.gradle, so the repository stays untouched and the config is
+      # neutralised for this run only.
+      - name: Prepare unsigned release build
+        if: ${{ steps.signing.outputs.enabled != 'true' }}
+        run: |
+          cat > "$RUNNER_TEMP/unsigned-release.gradle" <<'GRADLE'
+          // CI-only: clear the release signing config so assembleRelease emits an unsigned APK.
+          // Never write this into app/build.gradle - an unsigned release must not be producible by
+          // accident on a developer machine.
+          gradle.projectsEvaluated {
+              gradle.rootProject.subprojects.each { project ->
+                  project.plugins.withId('com.android.application') {
+                      project.android.buildTypes.release.signingConfig = null
+                  }
+              }
+          }
+          GRADLE
+
+      - name: Build unsigned release APK
+        if: ${{ steps.signing.outputs.enabled != 'true' }}
+        env:
+          GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-user-home
+        run: ./gradlew assembleRelease --stacktrace --console=plain --init-script "$RUNNER_TEMP/unsigned-release.gradle"
+
+      # ── 10. checksums for the reproducibility record ─────────────────────────
+      # Only file names, sizes and hashes are printed - no secret material is involved.
+      - name: Record APK checksums
+        if: always()
+        run: |
+          find app/build/outputs/apk -name '*.apk' -type f -print0 2>/dev/null \
+            | xargs -0 -r sha256sum | tee "$RUNNER_TEMP/apk-sha256.txt" || true
+          find app/build/outputs/apk -name '*.apk' -type f -printf '%s %p\n' 2>/dev/null || true
+
+      # ── 11. upload the APK artifact ──────────────────────────────────────────
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linski-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            ${{ runner.temp }}/apk-sha256.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ── 12. always upload the test and lint reports ──────────────────────────
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/test-results/**/*.xml
+            app/build/reports/tests/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results-*.html
+            app/build/reports/lint-results-*.xml
+            app/build/reports/lint-results-*.txt
+          if-no-files-found: warn
+          retention-days: 14
