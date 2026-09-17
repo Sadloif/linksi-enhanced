@@ -25,6 +25,7 @@ import androidx.core.os.LocaleListCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import android.view.WindowManager
+import com.linksi.app.enhanced.ui.DownloadNavigation
 import com.linksi.app.ui.screens.HomeScreen
 import com.linksi.app.ui.screens.LockScreen
 import com.linksi.app.ui.screens.OnboardingScreen
@@ -59,6 +60,15 @@ class MainActivity : AppCompatActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // A one-shot request (from the quick panel's "Open Downloads", or any other internal
+        // caller) to land on the Downloads screen instead of the home list. Read before the
+        // intent is cleared so a configuration change cannot re-open it.
+        val openDownloadsOnStart =
+            intent?.getBooleanExtra(DownloadNavigation.EXTRA_OPEN_DOWNLOADS, false) == true
+        if (openDownloadsOnStart) {
+            runCatching { intent?.removeExtra(DownloadNavigation.EXTRA_OPEN_DOWNLOADS) }
+        }
 
         setContent {
             val context = LocalContext.current
@@ -169,7 +179,7 @@ class MainActivity : AppCompatActivity() {
                                 }
 
                                 true -> {
-                                    HomeScreen()
+                                    HomeScreen(openDownloadsOnStart = openDownloadsOnStart)
                                 }
                             }
                         }

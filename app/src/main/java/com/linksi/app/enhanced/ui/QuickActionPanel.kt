@@ -89,13 +89,20 @@ data class QuickPanelCallbacks(
  * The panel is inert: it is only ever composed on demand, performs no work at construction, and
  * asks for no permission. It performs no I/O of its own either - every row reports a click to
  * [callbacks], which the caller wires to [QuickPanelActions] or to its own logic.
+ *
+ * @param downloadStatus an optional slot rendered directly under the DOWNLOAD section. The panel
+ *   itself knows nothing about a download engine: the host that owns one passes the live progress,
+ *   the cancel button and the failure message in through this slot, and a host that has no engine
+ *   (or does not care) simply leaves it out. It is deliberately *not* part of [callbacks], so the
+ *   panel's callback contract stays presentational and unchanged.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickActionPanel(
     state: QuickPanelState,
     callbacks: QuickPanelCallbacks,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    downloadStatus: (@Composable () -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val actions = remember(state) { QuickActionModel.actionsFor(state) }
@@ -176,6 +183,13 @@ fun QuickActionPanel(
                         }
                     }
                 }
+
+                // The engine's live progress, cancel, retry and failure message. Supplied by the
+                // host, so the panel stays presentational and this module keeps no engine
+                // dependency (specification section 26: a download failure must not break the rest
+                // of the panel, which is why this slot renders *inside* the scrollable column
+                // rather than replacing the panel).
+                downloadStatus?.invoke()
             }
 
             val actionSection = ACTION_SECTION.filter { it in actions }

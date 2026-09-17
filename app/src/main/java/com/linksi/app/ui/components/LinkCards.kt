@@ -55,6 +55,7 @@ import com.android.volley.toolbox.ImageRequest
 import com.linksi.app.R
 import com.linksi.app.domain.model.Folder
 import com.linksi.app.domain.model.Link
+import com.linksi.app.enhanced.ui.QuickPanelActivity
 import com.linksi.app.utils.UrlCleaner
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -1183,6 +1184,25 @@ fun LinkOptionsSheet(
                         else
                             stringResource(R.string.add_tags_desc),
                         onClick = { showTagSheet = true }
+                    )
+
+                    // ── Download / quick actions (spec section 13) ────
+                    // Opens the real quick action panel for this link, with the URL passed in
+                    // explicitly so nothing is read from the clipboard. Launched straight from
+                    // here: LinkOptionsSheet already has a Context, so no new callback has to be
+                    // threaded through HomeScreen (the same trick "Copy clean URL" uses).
+                    OptionsFullRow(
+                        icon = Icons.Outlined.Download,
+                        title = stringResource(R.string.download_quick_actions),
+                        subtitle = stringResource(R.string.download_quick_actions_desc),
+                        onClick = {
+                            dismiss()
+                            runCatching {
+                                context.startActivity(
+                                    QuickPanelActivity.intentFor(context, link.url)
+                                )
+                            }
+                        }
                     )
 
                     // ── Copy clean URL (spec 9.5) ─────────────────────

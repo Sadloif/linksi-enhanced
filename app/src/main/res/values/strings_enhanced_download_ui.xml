@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  User-facing text for the download *user interface*: the progress area inside the quick action
+  panel, the Downloads screen, and the entry-point rows that open them.
+
+  Separate from res/values/strings_enhanced_download.xml (which belongs to the engine and the
+  notifications) and from the baseline res/values/strings.xml, so neither this module nor the
+  engine module ever edits a file the other one owns. Every name is prefixed with `download_` or
+  `downloads_` to stay clear of the existing keys.
+-->
+<resources>
+
+    <!-- ── Entry points ──────────────────────────────────────────────────────── -->
+
+    <!-- Link options sheet: opens the quick action panel for that link. -->
+    <string name="download_quick_actions">Download / quick actions</string>
+    <string name="download_quick_actions_desc">Check this link for a downloadable file or video</string>
+
+    <!-- Settings hub: opens the Downloads screen. -->
+    <string name="downloads_title">Downloads</string>
+    <string name="downloads_subtitle">Downloads and their progress</string>
+
+    <!-- ── Quick action panel: the download progress area ────────────────────── -->
+
+    <string name="download_panel_analyzing">Checking the link…</string>
+    <string name="download_panel_queued">Waiting to start…</string>
+    <string name="download_panel_complete">Download complete</string>
+    <string name="download_panel_cancelled">Download cancelled</string>
+    <string name="download_panel_failed">Download failed</string>
+    <string name="download_panel_cancel">Cancel download</string>
+    <string name="download_panel_retry">Try again</string>
+    <string name="download_panel_done">Done</string>
+    <string name="download_panel_open_downloads">Open Downloads</string>
+
+    <!-- ── Downloads screen ──────────────────────────────────────────────────── -->
+
+    <string name="downloads_empty">Nothing has been downloaded yet.</string>
+    <string name="downloads_empty_hint">Use the Download row on a link, or the quick action panel, to start one.</string>
+    <string name="downloads_section_active">In progress</string>
+    <string name="downloads_section_finished">Finished</string>
+    <string name="downloads_state_queued">Waiting to start</string>
+    <string name="downloads_state_running">Downloading</string>
+    <string name="downloads_state_completed">Complete</string>
+    <string name="downloads_state_failed">Failed</string>
+    <string name="downloads_state_cancelled">Cancelled</string>
+    <string name="downloads_state_analyzing">Checking the link</string>
+    <string name="downloads_state_ready">Ready to choose a format</string>
+    <string name="downloads_cancel">Cancel</string>
+    <string name="downloads_retry">Retry</string>
+    <string name="downloads_dismiss">Remove</string>
+    <string name="downloads_no_total">Size unknown</string>
+    <string name="downloads_unknown_name">Download</string>
+
+    <plurals name="downloads_active_count">
+        <item quantity="one">%1$d download in progress</item>
+        <item quantity="other">%1$d downloads in progress</item>
+    </plurals>
+
+    <!-- Accessibility descriptions for the per-row actions. -->
+    <string name="downloads_cancel_desc">Cancel this download</string>
+    <string name="downloads_retry_desc">Retry this download</string>
+    <string name="downloads_dismiss_desc">Remove this entry from the list</string>
+
+</resources>
