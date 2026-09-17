@@ -387,6 +387,32 @@ logcat, not the summary line** (`OK (N tests)` hides assumption-skipped tests).
   `3.1.1-enhanced.2` over it, and confirm the data survives (same `applicationId`, same keystore,
   higher `versionCode` — this is the private-key update path working).
 
+### 10.7 Driving the app by intent — use the DEBUG build on a real device
+
+`QuickPanelActivity` is deliberately **not exported** (only `MainActivity`, `ShareReceiverActivity`
+and the declared services are). On the emulator, `adb shell am start -n
+com.linksi.app/…QuickPanelActivity` works because the emulator image is userdebug; on a real
+production device it is refused:
+
+```text
+W ActivityTaskManager: Permission Denial: starting Intent { cmp=com.linksi.app/.enhanced.ui.QuickPanelActivity (has extras) } from null (uid=2000) not exported from uid …
+```
+
+**So on real hardware, drive the `com.linksi.app.debug` build by intent** — it is debuggable, so
+shell may start its non-exported activities, and it exercises exactly the same panel and extractor
+code. This is the fastest way to test a real URL:
+
+```powershell
+$extra='com.linksi.app.enhanced.extra.PANEL_URL'
+& $adb -s <serial> shell "am start -n com.linksi.app.debug/com.linksi.app.enhanced.ui.QuickPanelActivity --es $extra '<real-url>'"
+# the panel analyses on open for direct files; for a site URL tap the DOWNLOAD row
+& $adb -s <serial> shell input tap 540 1082
+& $adb -s <serial> logcat -d | Select-String 'YtDlpRuntime|YtDlpSmokeTest|\[facebook\]|formats'
+```
+
+Do **not** fix this by exporting the activity: keeping it non-exported is correct, and the same
+intent path is available through `LinkCards`' "Download / quick actions" row in the app itself.
+
 ### 10.6 Clean-up
 
 The debug build installs as a **separate app** (`com.linksi.app.debug`) from the release build
