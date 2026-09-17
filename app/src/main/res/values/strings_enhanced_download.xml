@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  User-facing text for the enhanced download module.
+
+  Deliberately a separate file from res/values/strings.xml: the download engine is an optional
+  module, so removing it should mean deleting files, not editing the core string table. No name in
+  this file collides with an existing resource.
+-->
+<resources>
+
+    <!-- Notification channels (research brief section 4.4): low importance for progress so a long
+         download never makes a sound, default importance for the one-shot result. -->
+    <string name="enhanced_download_channel_progress_name">Downloads</string>
+    <string name="enhanced_download_channel_progress_desc">Progress of downloads while they run</string>
+    <string name="enhanced_download_channel_complete_name">Download results</string>
+    <string name="enhanced_download_channel_complete_desc">Alerts when a download finishes or fails</string>
+
+    <!-- Progress notification -->
+    <string name="enhanced_download_size_unknown">Unknown size</string>
+    <string name="enhanced_download_notification_progress">%1$s of %2$s</string>
+    <string name="enhanced_download_notification_percent">%1$d%% · %2$s</string>
+    <string name="enhanced_download_notification_detail">%1$s · %2$s</string>
+
+    <!-- Result notifications -->
+    <string name="enhanced_download_complete_title">Download complete</string>
+    <string name="enhanced_download_failed_title">Download failed</string>
+
+    <!-- Failure reasons, one per MediaError. Kept in this module rather than reusing the UI's
+         error_download_* keys so the two modules can be added to the string table independently. -->
+    <string name="enhanced_download_error_unsupported">This link is not a file this app can save.</string>
+    <string name="enhanced_download_error_private">This content is private.</string>
+    <string name="enhanced_download_error_gone">This content is no longer available.</string>
+    <string name="enhanced_download_error_login_required">Sign in to this site to download it.</string>
+    <string name="enhanced_download_error_network">The connection failed. Check your network and try again.</string>
+    <string name="enhanced_download_error_failed">The download could not be completed.</string>
+    <string name="enhanced_download_error_no_formats">No downloadable version was found.</string>
+    <string name="enhanced_download_error_no_storage">There is not enough storage, or the download folder is unavailable.</string>
+    <string name="enhanced_download_error_engine_unavailable">This download needs an optional engine that is not installed.</string>
+    <string name="enhanced_download_error_server_unavailable">The server is not responding right now. Try again later.</string>
+    <string name="enhanced_download_error_cancelled">The download was cancelled.</string>
+
+</resources>
