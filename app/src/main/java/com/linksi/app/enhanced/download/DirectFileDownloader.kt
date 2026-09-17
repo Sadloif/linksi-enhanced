@@ -1,6 +1,7 @@
 package com.linksi.app.enhanced.download
 
 import com.linksi.app.enhanced.media.MediaError
+import com.linksi.app.enhanced.media.direct.DirectFileClassifier
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -32,6 +33,13 @@ data class DirectDownloadRequest(
  * stays cancelled (the partial file is cleaned up on the way out and the
  * [CancellationException] is rethrown), so callers see cancellation exactly once, through the
  * coroutine machinery they already use.
+ */
+/**
+ * The outcome of a download attempt, as a value rather than an exception (specification section 26).
+ *
+ * [Failed.detail] doubles as the only machine-readable part of a failure, and the worker relies on
+ * that for one specific case: [DirectFileDownloader.NOT_A_FILE_DETAIL] means "this URL is not a file
+ * after all", where handing it to the site engine can still produce the user's media.
  */
 sealed interface DirectDownloadResult {
 
@@ -185,6 +193,24 @@ class DirectFileDownloader @Inject constructor(
             ?.takeIf { it.isNotEmpty() }
             ?: body.contentType()?.let { "${it.type}/${it.subtype}" }
 
+        // The content type is a claim by the server, and servers get it wrong in the direction that
+        // matters: a URL that is really a page can be served as `text/plain` or
+        // `application/octet-stream`, which passes every type check and then lands a document in the
+        // user's Downloads folder. That is not hypothetical - it was observed on a device, where a
+        // Facebook Reel URL that the site engine could not read fell through to the direct path and
+        // saved a 4 KB XML error page as `1710485373378939.vndwapxh`, with no error shown.
+        //
+        // So the first bytes are inspected directly. `peekBody` leaves them in place for the copy
+        // that follows, so this costs one buffered read and no re-request.
+        val leading = runCatching { response.peekBody(SNIFF_BYTES) }.getOrNull()
+        if (leading != null && DirectFileClassifier.looksLikeMarkup(leading.bytes())) {
+            return DirectDownloadResult.Failed(
+                MediaError.EXTRACTOR_FAILED,
+                NOT_A_FILE_DETAIL,
+                response.code
+            )
+        }
+
         val handle = try {
             sink.open(request.displayName, mimeType, append)
         } catch (error: Exception) {
@@ -251,6 +277,18 @@ class DirectFileDownloader @Inject constructor(
     companion object {
         /** 64 KiB: large enough that the per-read overhead disappears, small enough to cancel fast. */
         private const val BUFFER_BYTES = 64 * 1024
+
+        /** How much of the body is inspected for a document signature before anything is written. */
+        private const val SNIFF_BYTES = 2L * 1024L
+
+        /**
+         * The detail attached when the bytes under a URL turn out to be a document, not media.
+         *
+         * It is a constant rather than a sentence because it is read back by
+         * [DownloadWorker]: a URL whose bytes are a page is precisely the case where the site engine
+         * may still be able to produce the user's media, and the worker needs to recognise it to try.
+         */
+        internal const val NOT_A_FILE_DETAIL = "the server returned a page rather than a file"
 
         private const val HTTP_PARTIAL_CONTENT = 206
 
@@ -324,8 +362,7 @@ class DownloadProgressMeter(
     }
 }
 
-/** A parsed `Content-Range` response header. */
-data class ByteRange(
+/** A parsed `Content-Range` response header. */data class ByteRange(
     val start: Long,
     val end: Long?,
     /** Total resource size, or null when the server wrote `*`. */

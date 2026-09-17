@@ -14,12 +14,15 @@ import com.linksi.app.enhanced.download.DownloadState
 import com.linksi.app.enhanced.download.MediaStoreSink
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaSource
+import com.linksi.app.enhanced.media.MediaSourceDetector
 import com.linksi.app.enhanced.media.ytdlp.YtDlpDownloadRequest
 import com.linksi.app.enhanced.media.ytdlp.YtDlpDownloader
 import com.linksi.app.enhanced.media.ytdlp.YtDlpExtractor
 import com.linksi.app.enhanced.media.ytdlp.YtDlpInitStatus
 import com.linksi.app.enhanced.media.ytdlp.YtDlpNativeLibraries
 import com.linksi.app.enhanced.media.ytdlp.YtDlpRuntime
+import com.linksi.app.enhanced.media.ytdlp.YtDlpRefreshResult
+import com.linksi.app.enhanced.media.ytdlp.YtDlpUpdater
 import com.yausername.youtubedl_android.YoutubeDL
 import java.io.File
 import java.util.Collections
@@ -30,6 +33,7 @@ import java.util.concurrent.TimeoutException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -80,15 +84,48 @@ class YtDlpMediaSmokeTest {
 
         /**
          * How long a merged download may take here before the test gives up and reports the merge
-         * path as unverified. An emulator's NAT link runs at a couple of megabits, so this is
-         * generous rather than tight: it exists to bound a stuck process, not to measure speed.
+         * path as unverified.
+         *
+         * This is a **stuck-process bound, not a performance budget**, and it deliberately errs on
+         * the generous side. An earlier version used 120 s and reported the merge path as
+         * unverified on both the emulator and a physical phone. That number was simply too small
+         * for the bytes involved: this DASH manifest offers a 15.5 MiB video stream, and the
+         * emulator's NAT link moves ~100-220 KiB/s, so the video alone can take two minutes before
+         * the audio stream has even started. A run whose deadline expires mid-transfer is then
+         * indistinguishable from a hang, which is exactly the wrong conclusion to publish.
+         *
+         * The real bound on a stuck yt-dlp belongs in the app, not in a test: [YtDlpDownloader]
+         * cannot interrupt a hung child process at all (see `YtDlpDownloadWatchdog`). Until that
+         * exists, this deadline only stops one slow download from hanging the whole instrumented
+         * run. Raise it with `-e ytdlpDownloadTimeoutSeconds <n>` for a slower device or a bigger
+         * sample; it can also be lowered to reproduce the old behaviour.
          */
-        const val DOWNLOAD_TIMEOUT_SECONDS = 120L
+        const val DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 900L
+
+        const val TIMEOUT_ARGUMENT = "ytdlpDownloadTimeoutSeconds"
+
+        /**
+         * The video-only stream to merge, as a yt-dlp format id, or blank to let the test choose the
+         * smallest one the site offers. `-e ytdlpFormatId <id>` pins it so a run can be made
+         * repeatable and small; the default keeps the test honest about whatever a site offers.
+         */
+        const val FORMAT_ARGUMENT = "ytdlpFormatId"
+
+        /** A different source to test against, for a network where the default one is blocked. */
+        const val URL_ARGUMENT = "ytdlpUrl"
+
+        /**
+         * The specification's own worked example, taken from the owner's real export.
+         *
+         * It is a live Facebook Reel that the pinned engine could not read and a current one can, so
+         * it is the honest end-to-end check of what the engine refresh is for.
+         */
+        const val FACEBOOK_REEL_EXAMPLE = "https://www.facebook.com/reel/1710485373378939/"
     }
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
-    private val runtime by lazy { YtDlpRuntime(context) }
+    private val runtime by lazy { YtDlpRuntime(context, YtDlpUpdater(context)) }
 
     private val extractor by lazy { YtDlpExtractor(runtime) }
 
@@ -98,6 +135,26 @@ class YtDlpMediaSmokeTest {
         sdkInt = Build.VERSION.SDK_INT,
         supportedAbis = Build.SUPPORTED_ABIS.toList()
     )
+
+    /** The instrumentation-supplied value for [name], or null when the run did not set it. */
+    private fun argument(name: String): String? =
+        InstrumentationRegistry.getArguments().getString(name)?.takeIf { it.isNotBlank() }
+
+    /**
+     * The deadline for one merged download, from `-e ytdlpDownloadTimeoutSeconds`, or
+     * [DEFAULT_DOWNLOAD_TIMEOUT_SECONDS].
+     *
+     * A run that passes a non-numeric or non-positive value is told so rather than silently falling
+     * back, because a typo in a deadline would otherwise read as a network result.
+     */
+    private fun downloadTimeoutSeconds(): Long {
+        val raw = argument(TIMEOUT_ARGUMENT) ?: return DEFAULT_DOWNLOAD_TIMEOUT_SECONDS
+        val parsed = raw.toLongOrNull()
+        require(parsed != null && parsed > 0L) {
+            "$TIMEOUT_ARGUMENT must be a positive number of seconds, but was '$raw'"
+        }
+        return parsed
+    }
 
     private fun analyze(url: String, source: MediaSource): MediaExtractionResult =
         runBlocking { extractor.analyze(url, source) }
@@ -180,6 +237,81 @@ class YtDlpMediaSmokeTest {
         )
     }
 
+    // ── The engine can be refreshed, and refreshing it fixes real links (spec 19 and 26) ────────
+
+    /**
+     * The engine refresh, end to end, and what it is for.
+     *
+     * This is the test that closes the real-content gap for the owner's own links. The wrapper pins
+     * yt-dlp **2024.09.27**, and by the time it mattered that copy could not read a single one of the
+     * nine Facebook links from the owner's export, while a current release read five of them -
+     * including `reel/1710485373378939`, which is the specification's own worked example. Everything
+     * here is measured on the device rather than assumed:
+     *
+     *  1. the engine reports a version *by running* (the wrapper's `versionName` reads a preference
+     *     only its own updater writes, so it is empty on a fresh install);
+     *  2. a forced refresh stages, validates and installs a newer engine, or reports why not;
+     *  3. after the refresh the engine still runs - a replaced engine that cannot start would be
+     *     worse than an old one;
+     *  4. and the real Facebook link then extracts formats through **the app's own** [YtDlpExtractor],
+     *     which is the claim the specification cares about.
+     *
+     * Passing `-e ytdlpUrl <url>` probes a different link. The step is skipped, not failed, when the
+     * device is offline or GitHub is unreachable: neither says anything about the app.
+     */
+    @Test
+    fun theEngineCanBeRefreshedAndThenReadsARealFacebookReel() {
+        assumeTrue(runBlocking { runtime.ensureReady() } is YtDlpInitStatus.Ready)
+
+        val before = runBlocking { runtime.engineVersion() }
+        Log.i(TAG, "site engine version before refresh: $before")
+
+        val refreshed = runBlocking { runtime.refreshEngine() }
+        Log.i(TAG, "engine refresh result: $refreshed")
+        assertTrue(
+            "an engine that cannot be described is a defect: $before",
+            !before.isNullOrBlank()
+        )
+
+        if (refreshed is YtDlpRefreshResult.Failed) {
+            // Offline, rate-limited or blocked. Not a statement about the app.
+            assumeTrue("the engine could not be refreshed here: ${refreshed.reason}", false)
+        }
+
+        // Whatever the refresh decided, the engine must work afterwards.
+        val after = runBlocking { runtime.engineVersion() }
+        Log.i(TAG, "site engine version after refresh: $after")
+        assertTrue("the engine must still report a version after a refresh: $after", !after.isNullOrBlank())
+
+        if (refreshed is YtDlpRefreshResult.Updated) {
+            assertNotEquals("a refresh must actually change the version", before, after)
+        }
+
+        val url = argument(URL_ARGUMENT) ?: FACEBOOK_REEL_EXAMPLE
+        val result = analyze(url, MediaSource.FACEBOOK)
+        Log.i(TAG, "real Facebook probe of $url -> $result")
+
+        when (result) {
+            is MediaExtractionResult.Success -> {
+                Log.i(
+                    TAG,
+                    "extracted '${result.info.title}' with ${result.info.formats.size} formats: " +
+                        result.info.displayFormats().take(15).joinToString { it.displayLabel }
+                )
+                assertTrue("a real link must yield formats", result.info.formats.isNotEmpty())
+            }
+
+            is MediaExtractionResult.Failure ->
+                assumeTrue("Facebook refused this link from here: ${result.error}", false)
+
+            is MediaExtractionResult.Unsupported ->
+                assumeTrue("$url was not recognised as a video, which the owner should re-share", false)
+
+            is MediaExtractionResult.Skipped ->
+                throw AssertionError("the engine was available but skipped the link: ${result.reason}")
+        }
+    }
+
     // ── Lazy initialisation (spec 26: no startup work) ──────────────────────────────────────────
 
     @Test
@@ -252,15 +384,17 @@ class YtDlpMediaSmokeTest {
 
     @Test
     fun aVideoOnlyFormatIsMergedAndPublishedWhereTheUserCanFindIt() {
-        val (url, success) = firstWorkingSource()
+        val (defaultUrl, success) = firstWorkingSource()
+        val url = argument(URL_ARGUMENT) ?: defaultUrl
         val info = success.info
 
         // A video-only stream is precisely the case OkHttp cannot serve: the sound is in another
-        // stream and only FFmpeg can join them. The smallest one keeps the test quick.
+        // stream and only FFmpeg can join them. The smallest one keeps the test quick, unless the
+        // run pinned a format id so the transfer could be made repeatable.
         val videoOnly = info.formats.filter { it.isVideo && it.requiresMuxing }
         assumeTrue("$url offered no separate video stream to merge", videoOnly.isNotEmpty())
-        val format = videoOnly.minByOrNull { it.height ?: Int.MAX_VALUE }!!
-        Log.i(TAG, "downloading video-only format ${format.id} at ${format.height}p to force a merge")
+        val pinned = argument(FORMAT_ARGUMENT)?.let { id -> info.formats.firstOrNull { it.id == id } }
+        val format = pinned ?: videoOnly.minByOrNull { it.height ?: Int.MAX_VALUE }!!
 
         val sink: DownloadSink = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStoreSink(context)
@@ -269,7 +403,31 @@ class YtDlpMediaSmokeTest {
         }
 
         val progress = Collections.synchronizedList(mutableListOf<DownloadState.Downloading>())
-        val outcome = boundedDownload(url, format.id, sink, progress)
+        val deadlineSeconds = downloadTimeoutSeconds()
+        val startedAt = System.currentTimeMillis()
+        Log.i(
+            TAG,
+            "downloading video-only format ${format.id} at ${format.height}p to force a merge " +
+                "(deadline ${deadlineSeconds}s)"
+        )
+        val outcome = boundedDownload(url, format.id, sink, progress, deadlineSeconds)
+        val elapsedMillis = System.currentTimeMillis() - startedAt
+        Log.i(
+            TAG,
+            "merge attempt finished in ${elapsedMillis / 1000}s " +
+                "(${progress.size} progress updates): $outcome"
+        )
+
+        if (outcome is DirectDownloadResult.Completed) {
+            // The figure that mattered: how long the transfer actually took, so a future deadline is
+            // chosen from measurement rather than guessed a second time.
+            Log.i(
+                TAG,
+                "merged ${outcome.bytes} bytes in ${elapsedMillis / 1000}s " +
+                    "(${bytesPerSecond(outcome.bytes, elapsedMillis)} B/s)"
+            )
+        }
+
         assertTrue("the download must succeed, but was $outcome", outcome is DirectDownloadResult.Completed)
         val completed = outcome as DirectDownloadResult.Completed
         Log.i(
@@ -305,15 +463,18 @@ class YtDlpMediaSmokeTest {
      * timeout would hang exactly as the download did. A thread with a deadline can always be
      * abandoned, so one slow or stuck download cannot hang the whole instrumented run.
      *
-     * Running out of time is reported as a *skip* with the reason attached, not as a failure: on this
-     * emulator it means the merged download could not be observed here, which is a fact about the
-     * device and the network rather than a claim that the code is correct.
+     * Running out of time is reported as a *skip* with the reason attached, not as a failure: it
+     * means the merged download could not be observed on this device within the deadline, which is
+     * a fact about the device and the network rather than a claim that the code is correct. The
+     * elapsed time is logged either way, because "how long did the transfer actually take" is the
+     * input the next deadline should be derived from.
      */
     private fun boundedDownload(
         url: String,
         formatId: String,
         sink: DownloadSink,
-        progress: MutableList<DownloadState.Downloading>
+        progress: MutableList<DownloadState.Downloading>,
+        deadlineSeconds: Long = DEFAULT_DOWNLOAD_TIMEOUT_SECONDS
     ): DirectDownloadResult {
         val executor = Executors.newSingleThreadExecutor()
         return try {
@@ -332,15 +493,15 @@ class YtDlpMediaSmokeTest {
                     }
                 }
             )
-            future.get(DOWNLOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            future.get(deadlineSeconds, TimeUnit.SECONDS)
         } catch (timeout: TimeoutException) {
             Log.w(
                 TAG,
-                "the merged download of $url did not finish within ${DOWNLOAD_TIMEOUT_SECONDS}s; " +
+                "the merged download of $url did not finish within ${deadlineSeconds}s; " +
                     "treating the merge path as unverified on this device"
             )
             assumeTrue(
-                "the merged download did not finish within ${DOWNLOAD_TIMEOUT_SECONDS}s on this device",
+                "the merged download did not finish within ${deadlineSeconds}s on this device",
                 false
             )
             throw AssertionError("unreachable")
@@ -349,6 +510,10 @@ class YtDlpMediaSmokeTest {
             executor.shutdownNow()
         }
     }
+
+    /** Bytes per second over an interval, or 0 when the interval is too small to divide by. */
+    private fun bytesPerSecond(bytes: Long, elapsedMillis: Long): Long =
+        if (elapsedMillis <= 0L) 0L else bytes * 1000L / elapsedMillis
 
     /** The length of what the published location actually resolves to, or -1 when it does not. */
     private fun readableBytes(location: String): Long {
@@ -371,6 +536,42 @@ class YtDlpMediaSmokeTest {
     }
 
     // ── Failure is a value, never an exception (spec 26) ────────────────────────────────────────
+
+    @Test
+    fun configuredPublicTargetAnswersWithAValueRatherThanAThrow() {
+        val url = argument(URL_ARGUMENT)
+        assumeTrue("pass -e $URL_ARGUMENT <public-url>", url != null)
+        val publicUrl = requireNotNull(url)
+        val source = MediaSourceDetector.fromUrl(publicUrl)
+
+        assertTrue(
+            "configured URL must belong to one of the five primary target sites, but was $source",
+            source in MediaSourceDetector.PRIMARY_TARGETS
+        )
+
+        when (val result = analyze(publicUrl, source)) {
+            is MediaExtractionResult.Success -> {
+                Log.i(TAG, "real public probe $source succeeded with ${result.info.formats.size} formats")
+                assertTrue("a success must carry formats", result.info.formats.isNotEmpty())
+                assertTrue("the extracted title must not be blank", result.info.title.isNotBlank())
+            }
+
+            is MediaExtractionResult.Failure -> {
+                Log.i(TAG, "real public probe $source failed as ${result.error}")
+                assertFalse("a failure must name a reason", result.error.name.isBlank())
+            }
+
+            is MediaExtractionResult.Unsupported -> {
+                Log.i(TAG, "real public probe $source was reported unsupported")
+                assertEquals(publicUrl, result.url)
+            }
+
+            is MediaExtractionResult.Skipped -> {
+                Log.i(TAG, "real public probe $source was skipped")
+                assertTrue("a skip must explain itself", result.reason.isNotBlank())
+            }
+        }
+    }
 
     @Test
     fun everyTargetSiteAnswersWithAValueRatherThanAThrow() {

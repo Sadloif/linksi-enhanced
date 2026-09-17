@@ -11,6 +11,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -18,8 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.linksi.app.R
+import com.linksi.app.enhanced.download.rememberDownloadNotificationRequest
+import com.linksi.app.enhanced.media.ytdlp.YtDlpRefreshResult
+import com.linksi.app.enhanced.ui.DownloadUiEntryPoint
 import com.linksi.app.ui.components.ExpressiveSettingsCard
 import com.linksi.app.ui.components.IconContainer
+import kotlinx.coroutines.launch
 
 /**
  * Settings for every optional enhanced module (specification sections 33 and 34).
@@ -49,6 +59,16 @@ fun EnhancedSettingsScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+
+    // Reached through the existing download entry point rather than a new view-model: this screen
+    // only needs to read a version and ask for a refresh, and the entry point already exposes the
+    // engine's machinery to any Compose screen.
+    val entryPoint = remember(context) { DownloadUiEntryPoint.from(context) }
+
+    // `POST_NOTIFICATIONS` is asked for the moment the user enables *Download notifications* - never
+    // at launch - because the feature is optional (specification section 33). Passing the switch's
+    // new value in avoids racing the DataStore write the view-model is still performing.
+    val requestNotificationPermission = rememberDownloadNotificationRequest()
 
     Scaffold(
         topBar = {
@@ -137,7 +157,67 @@ fun EnhancedSettingsScreen(
                     title = stringResource(id = R.string.enhanced_download_notifications),
                     subtitle = stringResource(id = R.string.enhanced_download_notifications_subtitle),
                     checked = downloadNotifications,
-                    onCheckedChange = onDownloadNotificationsToggled
+                    onCheckedChange = { enabled ->
+                        onDownloadNotificationsToggled(enabled)
+                        // Switching the feature off needs no request, and the helper refuses an
+                        // already-granted permission or a second dialog in the same visit.
+                        requestNotificationPermission(enabled)
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // ── Site engine ─────────────────────────────────────────────────────
+            // The engine is what reads Instagram, Facebook, TikTok, Pinterest and Reddit, and the
+            // copy bundled with the app goes stale as those sites change - measurably so: the pinned
+            // 2024.09.27 build could not read a single one of the owner's Facebook links, and the
+            // current release reads five of nine. So the version is shown, and refreshing is a
+            // deliberate action here rather than something silent.
+            ExpressiveSettingsCard {
+                val scope = rememberCoroutineScope()
+                var engineState by remember { mutableStateOf(YtDlpEngineState()) }
+                val refreshLabel = stringResource(id = R.string.enhanced_engine_refresh)
+
+                LaunchedEffect(Unit) {
+                    engineState = engineState.copy(version = runCatching { entryPoint.ytDlpRuntime().engineVersion() }.getOrNull())
+                }
+
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(id = R.string.enhanced_engine_title), fontWeight = FontWeight.SemiBold)
+                    },
+                    supportingContent = {
+                        Text(
+                            text = when {
+                                engineState.busy -> stringResource(id = R.string.enhanced_engine_checking)
+                                engineState.message != null -> engineState.message!!
+                                engineState.version != null ->
+                                    stringResource(id = R.string.enhanced_engine_version, engineState.version!!)
+                                else -> stringResource(id = R.string.enhanced_engine_unknown)
+                            },
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    },
+                    leadingContent = { IconContainer(Icons.Outlined.Download) },
+                    trailingContent = {
+                        TextButton(
+                            enabled = !engineState.busy,
+                            onClick = {
+                                engineState = engineState.copy(busy = true, message = null)
+                                scope.launch {
+                                    val result = runCatching { entryPoint.ytDlpRuntime().refreshEngine() }
+                                        .getOrElse { YtDlpRefreshResult.Failed(it.message ?: "unknown error") }
+                                    engineState = YtDlpEngineState(
+                                        busy = false,
+                                        version = runCatching { entryPoint.ytDlpRuntime().engineVersion() }.getOrNull(),
+                                        message = engineResultMessage(result)
+                                    )
+                                }
+                            }
+                        ) { Text(refreshLabel) }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
                 )
             }
 
@@ -199,8 +279,7 @@ fun EnhancedSettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EnhancedToggleRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun EnhancedToggleRow(    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
     checked: Boolean,
@@ -231,6 +310,27 @@ private fun EnhancedDivider() {
 
 private fun canDrawOverlays(context: Context): Boolean =
     runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
+
+/** What the site-engine row is showing while a refresh is in flight, and what it said afterwards. */
+private data class YtDlpEngineState(
+    val busy: Boolean = false,
+    val version: String? = null,
+    val message: String? = null
+)
+
+/**
+ * The sentence the engine row shows after a refresh (pure, so the wording is unit testable).
+ *
+ * A failure is phrased as "still on", not as an error, because that is what happened: the updater
+ * only ever replaces the engine with one it has verified, so a refused update leaves a working
+ * download path exactly as it was.
+ */
+internal fun engineResultMessage(result: YtDlpRefreshResult): String = when (result) {
+    is YtDlpRefreshResult.Updated -> "Updated to ${result.version}"
+    is YtDlpRefreshResult.AlreadyCurrent -> "Already up to date (${result.version})"
+    is YtDlpRefreshResult.Skipped -> "Not checked yet: ${result.reason}"
+    is YtDlpRefreshResult.Failed -> "Could not update, still on the installed version: ${result.reason}"
+}
 
 private fun openOverlaySettings(context: Context) {
     runCatching {

@@ -32,6 +32,10 @@ import kotlinx.coroutines.withContext
  * Design notes, all of them consequences of the specification:
  *  - One work item per download, so a failure is isolated to that download and nothing can throw
  *    into the UI (section 26). `doWork` has no path that returns an exception.
+ *  - The runtime `POST_NOTIFICATIONS` permission is *not* requested here, and must not be: a worker
+ *    has no UI to ask from. It is requested where the download is enqueued from the UI
+ *    ([DownloadNotificationPermission]), and this worker simply tolerates the permission being
+ *    absent - it posts best effort and never fails a download for a notification (section 33).
  *  - It runs as a **long-running** worker: `setForeground` with
  *    `FOREGROUND_SERVICE_TYPE_DATA_SYNC`, never `shortService` and never expedited work, because a
  *    media download routinely exceeds the three-minute `shortService` deadline and the documented
@@ -72,8 +76,10 @@ class DownloadWorker @AssistedInject constructor(
             startForegroundQuietly(request.id, title)
             run(request, title)
         } catch (cancelled: CancellationException) {
-            // The user cancelled, or the system stopped the work. The partial file has already been
-            // deleted by the downloader; all that is left is to drop the notification.
+            // The user cancelled, or the system stopped the work. Whatever the downloader had
+            // fetched stays in its scratch directory rather than being deleted: a cancellation is
+            // often followed by a retry, and yt-dlp resumes from those bytes. The downloader's stale
+            // sweep reclaims a scratch directory nobody comes back to.
             withContext(NonCancellable) { notifications.cancel(request.id) }
             throw cancelled
         } catch (error: Exception) {
@@ -138,13 +144,28 @@ class DownloadWorker @AssistedInject constructor(
 
         return when (result) {
             is DirectDownloadResult.Completed -> completed(request, result)
-            is DirectDownloadResult.Failed -> retryOrFail(
-                request = request,
-                title = title,
-                error = result.error,
-                detail = result.detail,
-                transient = result.transient
-            )
+            is DirectDownloadResult.Failed -> {
+                // The bytes behind this URL are a document, not media: the probe was fooled by a
+                // content type and the transfer found the truth. This is exactly the case the site
+                // engine exists for, and the user's real download is still reachable - pressing
+                // Download on a Facebook Reel took this path, failed, and reported a failure while
+                // yt-dlp could read the very same URL perfectly.
+                //
+                // Only this one detail triggers the hand-over. A stalled or refused transfer goes
+                // through the ordinary retry policy instead, because re-running it through a whole
+                // Python interpreter would be slower and no more likely to succeed.
+                if (result.detail == DirectFileDownloader.NOT_A_FILE_DETAIL) {
+                    Log.i(TAG, "download ${request.id} was not a file after all; trying the site engine")
+                    return downloadWithYtDlp(request, title)
+                }
+                retryOrFail(
+                    request = request,
+                    title = title,
+                    error = result.error,
+                    detail = result.detail,
+                    transient = result.transient
+                )
+            }
         }
     }
 
@@ -177,10 +198,13 @@ class DownloadWorker @AssistedInject constructor(
                 requiresMuxing = request.requiresMuxing,
                 preferredName = request.suggestedFileName?.takeIf { it.isNotBlank() }
             ),
-            sink = sink
-        ) { state ->
-            publish(request.id, title, state)
-        }
+            sink = sink,
+            // Named, not trailing: `download` also takes the watchdog policy, so the trailing-lambda
+            // position is no longer unique.
+            onProgress = { state ->
+                publish(request.id, title, state)
+            }
+        )
 
         return when (result) {
             is DirectDownloadResult.Completed -> completed(request, result)

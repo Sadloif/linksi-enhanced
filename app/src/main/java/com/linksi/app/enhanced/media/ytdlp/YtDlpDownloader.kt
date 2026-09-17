@@ -1,6 +1,7 @@
 package com.linksi.app.enhanced.media.ytdlp
 
 import android.content.Context
+import android.util.Log
 import com.linksi.app.enhanced.download.DirectDownloadResult
 import com.linksi.app.enhanced.download.DownloadErrorClassifier
 import com.linksi.app.enhanced.download.DownloadProgressMeter
@@ -14,16 +15,19 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -84,6 +88,17 @@ class YtDlpDownloader @Inject constructor(
     suspend fun download(
         request: YtDlpDownloadRequest,
         sink: DownloadSink,
+        /**
+         * The watchdog policy, overridable **for tests only**.
+         *
+         * A device test cannot wait out the production stall limit (a minute) plus a genuine
+         * network failure in one instrumented run, and a test that asserted the watchdog without
+         * ever triggering it would prove nothing. Nothing in the app passes this argument.
+         *
+         * Declared before [onProgress] on purpose: a suspend function with a callback keeps its
+         * callback in the trailing-lambda position, and every existing caller passes it that way.
+         */
+        watchdogPolicy: DownloadWatchdogPolicy = DownloadWatchdogPolicy(),
         onProgress: suspend (DownloadState.Downloading) -> Unit = {}
     ): DirectDownloadResult {
         when (val init = runtime.ensureReady()) {
@@ -100,69 +115,187 @@ class YtDlpDownloader @Inject constructor(
             YtDlpInitStatus.Ready -> Unit
         }
 
-        val workDirectory = newWorkDirectory()
+        val workDirectory = workDirectoryFor(request)
             ?: return DirectDownloadResult.Failed(
                 MediaError.NO_STORAGE,
                 "the app cache directory is not writable"
             )
 
-        return try {
-            runDownload(request, sink, workDirectory, onProgress)
-        } finally {
-            // Scratch space, never the user's file: removed whichever way this ended.
+        // Opportunistic, and deliberately not a background job: a scratch directory is only worth
+        // reclaiming when something is asking for scratch space.
+        runCatching { discardStaleWorkDirectories(workDirectory) }
+
+        val result = runDownload(request, sink, workDirectory, watchdogPolicy, onProgress)
+
+        // What happens to the scratch directory is what decides whether a retry resumes or starts
+        // over. yt-dlp keeps its own progress in a `.part` file and a `.ytdl` marker beside it and
+        // skips what it already fetched, but only while those files exist.
+        if (result is DirectDownloadResult.Failed && result.transient) {
+            // A network failure: keep the partial download so the retry continues instead of
+            // re-fetching everything. It is scratch space, and the stale sweep removes it if the
+            // user never comes back.
+            Log.i(TAG, "keeping ${workDirectory.name} so a retry can resume: ${result.detail}")
+        } else {
             runCatching { workDirectory.deleteRecursively() }
         }
+
+        return result
     }
 
     private suspend fun runDownload(
         request: YtDlpDownloadRequest,
         sink: DownloadSink,
         workDirectory: File,
+        watchdogPolicy: DownloadWatchdogPolicy,
         onProgress: suspend (DownloadState.Downloading) -> Unit
-    ): DirectDownloadResult = coroutineScope {
+    ): DirectDownloadResult = supervisorScope {
         val processId = "$PROCESS_ID_PREFIX${UUID.randomUUID()}"
 
-        // Cancelling the coroutine has to stop the child process, not merely stop waiting for it.
-        val registration = currentCoroutineContext()[Job]?.invokeOnCompletion {
-            runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
-        }
-
         val updates = Channel<DownloadState.Downloading>(Channel.CONFLATED)
-        val publisher = launch { for (update in updates) onProgress(update) }
+        // The caller's own progress callback must never be able to fail a download. It is UI work -
+        // a notification update, a Compose state write - and if it throws, the exception would come
+        // back through the publisher and abort a transfer that was working perfectly.
+        val publisher = launch {
+            for (update in updates) {
+                runCatching { onProgress(update) }
+            }
+        }
         val meter = DownloadProgressMeter()
         meter.reset()
 
-        var failure: DirectDownloadResult.Failed? = null
-        try {
+        val command = downloadRequest(request, workDirectory)
+        val policy = watchdogPolicy.scaleFor(request.expectedBytes)
+        Log.i(
+            TAG,
+            "yt-dlp request: format=${formatSelector(request.formatId, request.requiresMuxing)} " +
+                "work=${workDirectory.name} expectedBytes=${request.expectedBytes} " +
+                "stallLimit=${policy.stallLimitMillis}ms hardLimit=${policy.hardLimitMillis}ms"
+        )
+
+        val stallDetector = DownloadStallDetector(policy.stallLimitMillis)
+        // Read by the watchdog on every tick; written once by whichever of the two finishes first.
+        val settled = AtomicBoolean(false)
+
+        /**
+         * Why the download stopped, when the *app* stopped it, or null when it has not been stopped.
+         *
+         * A cancellation reaching `download.join()` is the mirror image of the one raised a moment
+         * earlier: the job was cancelled by this scope's watchdog rather than by the caller.
+         * Re-throwing it would propagate a cancellation out of `download()` - which is what a user
+         * tapping Cancel looks like - and on Android an uncaught coroutine cancellation in the
+         * worker's scope can take the process down. So a stop this class caused becomes an ordinary
+         * failure value, and only the caller's own cancellation is re-thrown.
+         *
+         * Declared before the watchdog because the watchdog records the reason before cancelling the
+         * child; awaiting that child then observes the recorded reason.
+         */
+        var stoppingFor: String? = null
+
+        /**
+         * The child that runs yt-dlp, as an [async] rather than a [launch].
+         *
+         * This matters for the app's survival, not for style. A `launch` reports its failure as an
+         * **uncaught** exception, and an uncaught exception in a coroutine on Android goes to the
+         * default handler, which kills the process — verified on the emulator, where a plain 404 from
+         * the source crashed the instrumented run with `YoutubeDLException` even though the failure
+         * was being collected. `async` hands the same exception to whoever awaits it instead, so an
+         * ordinary download error stays an ordinary download error.
+         */
+        val download = async {
             withContext(Dispatchers.IO) {
                 YoutubeDL.getInstance().execute(
-                    downloadRequest(request, workDirectory),
+                    command,
                     processId
                 ) { percent, _, line ->
-                    progressOf(line, percent, request.expectedBytes)?.let { (downloaded, total) ->
-                        meter.sample(downloaded, total)?.let { updates.trySend(it) }
+                    // This runs on the library's stdout-reader thread. Anything that escapes it stops
+                    // that thread and yt-dlp then blocks on a full pipe, so every statement here is
+                    // guarded: logging, parsing, the stall bookkeeping and the channel send.
+                    runCatching {
+                        Log.i(TAG, "yt-dlp: ${redactUrls(line)}")
+                        progressOf(line, percent, request.expectedBytes)?.let { (downloaded, total) ->
+                            // The watchdog is what acts on a stall; this only records the bytes and
+                            // the reported total, so that "no progress" is measured from the last byte
+                            // and silence after a stream reaches 100% is not mistaken for a dead
+                            // socket.
+                            stallDetector.onProgress(downloaded, total)
+                            meter.sample(downloaded, total)?.let { updates.trySend(it) }
+                        }
                     }
                 }
             }
+        }
+
+        /**
+         * The watchdog. It cannot make `execute` return - only the child process exiting does that
+         * - so it cancels the download coroutine instead, which is what runs the library's kill and,
+         * failing that, interrupts the thread blocked in `waitFor`.
+         */
+        val watchdog = launch {
+            val startedAt = System.currentTimeMillis()
+            while (isActive) {
+                delay(WATCHDOG_TICK_MILLIS)
+                if (settled.get()) break
+
+                val stalled = stallDetector.isStalled()
+                val overran = System.currentTimeMillis() - startedAt >= policy.hardLimitMillis
+                if (!stalled && !overran) continue
+
+                val reason = if (stalled) STALLED_DETAIL else TIMED_OUT_DETAIL
+                stoppingFor = reason
+                Log.w(
+                    TAG,
+                    "stopping the yt-dlp process: $reason " +
+                        "(bytes=${stallDetector.bytesSeen()}, elapsed=${System.currentTimeMillis() - startedAt}ms)"
+                )
+                runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
+                download.cancel(CancellationException(reason))
+                break
+            }
+        }
+
+        var failure: DirectDownloadResult.Failed? = null
+
+        try {
+            download.await()
         } catch (canceled: YoutubeDL.CanceledException) {
-            // Only reachable when this process was destroyed, which only happens on cancellation.
-            throw CancellationException("the yt-dlp process was stopped")
+            // The library's own cancellation, raised because the process was destroyed.
+            val reason = stoppingFor
+                ?: throw CancellationException("the yt-dlp process was stopped")
+            failure = DirectDownloadResult.Failed(MediaError.NETWORK, reason, transient = true)
         } catch (interrupted: InterruptedException) {
-            throw CancellationException("the yt-dlp process was interrupted")
+            // Only reached when the process was destroyed, so this is the same situation.
+            val reason = stoppingFor
+                ?: throw CancellationException("the yt-dlp process was interrupted")
+            failure = DirectDownloadResult.Failed(MediaError.NETWORK, reason, transient = true)
+        } catch (canceled: CancellationException) {
+            val reason = stoppingFor
+            if (reason != null) {
+                // The watchdog cancelled only the child after recording its reason. Return a normal,
+                // retryable failure so WorkManager can schedule the retry.
+                failure = DirectDownloadResult.Failed(MediaError.NETWORK, reason, transient = true)
+            } else {
+                // The caller cancelled the parent job. `await` must remain cancellable so this path
+                // runs immediately; waiting in NonCancellable here used to delay the Cancel button
+                // until the entire transfer completed. Stop the native child before propagating the
+                // caller's cancellation.
+                runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
+                throw canceled
+            }
         } catch (error: Exception) {
             // YoutubeDLException, or anything the bridge throws, becomes an ordinary failure.
             failure = failed(error, error.message)
         } finally {
+            settled.set(true)
+            watchdog.cancel()
             updates.close()
             // Progress is best effort: draining must not turn a cancellation into something else.
             withContext(NonCancellable) { runCatching { publisher.join() } }
-            registration?.dispose()
         }
 
-        failure?.let { return@coroutineScope it }
+        failure?.let { return@supervisorScope it }
 
         val produced = producedFile(workDirectory)
-            ?: return@coroutineScope DirectDownloadResult.Failed(
+            ?: return@supervisorScope DirectDownloadResult.Failed(
                 MediaError.EXTRACTOR_FAILED,
                 "yt-dlp finished without producing a file"
             )
@@ -271,18 +404,64 @@ class YtDlpDownloader @Inject constructor(
             // The container is deliberately NOT forced. Only the extension yt-dlp chose is known
             // to hold the codecs it chose; forcing mp4 onto a VP9/Opus pair would fail or remux.
             .addOption("--output", File(workDirectory, OUTPUT_TEMPLATE).absolutePath)
+            // Resume rather than restart after a dropped connection. Measured on the test emulator,
+            // whose virtual radio drops a transfer every few megabytes: without this, each retry began
+            // again from the beginning - the log showed a fresh "Destination:" line and a jump back to
+            // a low percentage - so a 6.46 MiB file that had reached 97.6% still failed after all three
+            // retries. With it, the `.part` file continues from where it stopped, which is the only way
+            // a large download finishes on a link that cannot hold one connection open for its length.
+            .addOption("--continue")
             .addOption("--socket-timeout", SOCKET_TIMEOUT_SECONDS)
             .addOption("--retries", RETRIES)
+            // Fragment-level retries, separate from transfer-level ones: a DASH download is hundreds
+            // of requests, and without this one refused fragment abandons the whole stream.
+            .addOption("--fragment-retries", FRAGMENT_RETRIES)
+            // Maintainer-endorsed workaround for stalled CDN connections, several of which are
+            // reachable over IPv6 but not over IPv4 (or the reverse) on a mobile network.
+            .addOption("--force-ipv4")
 
-    /** The scratch directory for one download, or null when it could not be created. */
-    private fun newWorkDirectory(): File? {
+    /**
+     * The scratch directory for one download, or null when it could not be created.
+     *
+     * **Stable for a given request**, which is what makes a retry a resume: yt-dlp keeps its
+     * progress in a `.part` file and a `.ytdl` marker inside this directory, and it skips the
+     * fragments those files say it already has. A directory named after the attempt, as this
+     * originally was, throws that away on every failure, so a flaky network could re-download the
+     * same bytes forever without ever finishing. The name still has to separate two *different*
+     * downloads of the same video - two resolutions, or a renamed copy - hence the format selector
+     * and the requested name are part of it.
+     */
+    private fun workDirectoryFor(request: YtDlpDownloadRequest): File? {
         val base = File(context.cacheDir, CACHE_DIRECTORY)
-        // Per-download, so two downloads can never see each other's output template.
-        val directory = File(base, "work-${UUID.randomUUID().toString().take(8)}")
+        val directory = File(base, workDirectoryName(request))
         return directory.takeIf { it.mkdirs() || it.isDirectory }
     }
 
+    /**
+     * Removes scratch directories belonging to downloads nobody is waiting for any more, apart from
+     * the one about to be used.
+     *
+     * Kept, not deleted, after a retryable failure, a scratch directory would otherwise accumulate
+     * for the life of the install - partial videos are exactly the kind of file that fills a user's
+     * storage without ever appearing in their Downloads list. An hour is comfortably longer than any
+     * retry this app schedules (WorkManager's backoff tops out well below it) and long enough that a
+     * user who returns to a failed download still gets the resume.
+     */
+    private fun discardStaleWorkDirectories(current: File, now: Long = System.currentTimeMillis()) {
+        val base = File(context.cacheDir, CACHE_DIRECTORY)
+        val cutoff = now - STALE_WORK_DIRECTORY_MILLIS
+        base.listFiles().orEmpty().forEach { candidate ->
+            if (candidate.isDirectory && candidate != current && candidate.lastModified() < cutoff) {
+                Log.i(TAG, "discarding stale scratch directory ${candidate.name}")
+                runCatching { candidate.deleteRecursively() }
+            }
+        }
+    }
+
     private companion object {
+        /** logcat tag for the child process's own output. */
+        const val TAG = "YtDlpDownloader"
+
         const val CACHE_DIRECTORY = "ytdlp"
 
         const val PROCESS_ID_PREFIX = "linksi-ytdlp-"
@@ -296,7 +475,41 @@ class YtDlpDownloader @Inject constructor(
 
         const val SOCKET_TIMEOUT_SECONDS = 20
 
-        const val RETRIES = 3
+        /**
+         * How many times yt-dlp may re-open a dropped connection within one download.
+         *
+         * Measured, not guessed. Against a link that drops the connection every few megabytes - the
+         * test emulator's virtual radio, which is a fair stand-in for a mobile network - the same
+         * 6.46 MiB file behaved like this:
+         *
+         * | `--retries` | outcome | errors survived | elapsed |
+         * |---|---|---|---|
+         * | 3 | **incomplete**, `.part` at 6,688,788 of 6,777,555 bytes | 4 | 9 s |
+         * | 10 | **complete**, 6,777,555 bytes | 8 | 9 s |
+         *
+         * Three, the yt-dlp default, is simply too few for a link that needs eight. Raising it is
+         * nearly free because every retry **resumes** (`--continue`) rather than starting over, so
+         * the extra attempts cost a few hundred kilobytes each rather than the whole file.
+         *
+         * The bound on a genuinely dead network is not this number: it is the stall watchdog, which
+         * stops an attempt that transfers nothing, and [SOCKET_TIMEOUT_SECONDS] on each connection.
+         */
+        const val RETRIES = 10
+
+        /** One per DASH fragment, so a single refused fragment does not abandon the stream. */
+        const val FRAGMENT_RETRIES = 10
+
+        /**
+         * How long an unfinished scratch directory may sit in the cache before the next download
+         * reclaims it. See [discardStaleWorkDirectories].
+         */
+        const val STALE_WORK_DIRECTORY_MILLIS = 60L * 60L * 1000L
+
+        /**
+         * How often the watchdog looks at the transfer. Well below the stall limit, so a stall is
+         * noticed within a few seconds of becoming one rather than a tick late.
+         */
+        const val WATCHDOG_TICK_MILLIS = 5_000L
     }
 }
 
@@ -334,6 +547,47 @@ internal fun producedFile(directory: File): File? = directory.listFiles()
 
 /** yt-dlp's own suffix for an in-progress download. */
 private const val PART_SUFFIX = ".part"
+
+/**
+ * The scratch directory name for one download (pure, unit tested).
+ *
+ * The name is a digest rather than the URL or the title, for three reasons: a URL contains
+ * characters no filesystem accepts and can be thousands of characters long, a title is
+ * attacker-controlled and could collide or escape the directory, and the *only* property that
+ * matters is that the same download always maps to the same directory while two different ones
+ * never do.
+ *
+ * "The same download" is deliberately a narrow idea: the same URL **and** the same format selector
+ * **and** the same requested name. Changing the quality the user asked for is a different download
+ * whose partial file would be the wrong video, so it must not inherit the old one's progress.
+ */
+internal fun workDirectoryName(
+    request: YtDlpDownloadRequest,
+    selector: String = formatSelector(request.formatId, request.requiresMuxing)
+): String {
+    val identity = "${request.url}\n$selector\n${request.preferredName.orEmpty()}"
+    val digest = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
+    val hex = digest.take(6).joinToString("") { "%02x".format(it) }
+    return "work-$hex"
+}
+
+/**
+ * One line of yt-dlp's own output, with every URL stripped of its query.
+ *
+ * This app has a standing rule against writing the URLs a user handles to logcat, and yt-dlp quotes
+ * media URLs verbatim - a CDN URL carries a signature and an expiry, which is exactly the sort of
+ * thing that must not land in a world-readable log. The scheme, host and path are kept because they
+ * are what makes a support log diagnosable ("which host refused, which file it was writing"), and
+ * the query is what carries the credential.
+ */
+internal fun redactUrls(line: String): String = URL_PATTERN.replace(line) { match ->
+    val url = match.value
+    val cut = url.indexOfFirst { it == '?' || it == '#' }
+    // No query and no fragment means nothing in this URL is a credential.
+    if (cut < 0) url else "${url.take(cut)}?<redacted>"
+}
+
+private val URL_PATTERN = Regex("""https?://\S+""")
 
 /**
  * [raw] without a trailing media extension, so the real one can be appended (pure, unit tested).

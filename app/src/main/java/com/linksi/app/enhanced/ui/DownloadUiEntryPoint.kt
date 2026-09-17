@@ -15,6 +15,7 @@ import com.linksi.app.enhanced.media.ExtractorRegistry
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaSourceDetector
+import com.linksi.app.enhanced.media.ytdlp.YtDlpRuntime
 import com.linksi.app.utils.extractDomain
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -48,6 +49,15 @@ interface DownloadUiEntryPoint {
     fun downloadEngine(): DownloadEngine
 
     fun extractorRegistry(): ExtractorRegistry
+
+    /**
+     * The site engine, so the settings screen can report its version and refresh it on request.
+     *
+     * The engine is what reads Instagram, Facebook, TikTok, Pinterest and Reddit, and the copy the
+     * wrapper ships goes stale as those sites change, so the version is something the user should be
+     * able to see and act on rather than a hidden implementation detail.
+     */
+    fun ytDlpRuntime(): YtDlpRuntime
 
     companion object {
 

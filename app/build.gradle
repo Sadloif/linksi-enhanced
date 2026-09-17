@@ -9,17 +9,21 @@ plugins {
 
 android {
     namespace 'com.linksi.app'
-    // 36 is required by androidx.media3 1.5.0+ (used by the optional media downloader) and is a
-    // build-time-only change: targetSdk stays at 34 so no runtime behaviour moves with it.
+    // Android 16 is the supported platform baseline for both compilation and runtime behaviour.
+    // Edge-to-edge and predictive-back compatibility are handled by every activity below.
     compileSdk 36
 
     defaultConfig {
         applicationId "com.linksi.app"
         minSdk 26
-        targetSdk 34
+        targetSdk 36
         // Private enhanced release. versionCode must always increase: 21 was 3.1.1-enhanced.1.
-        versionCode 22
-        versionName "3.1.1-enhanced.2"
+        // 23 is the first build carrying the download watchdog, the site-engine refresh, the runtime
+        // notification permission and targetSdk 36. It has to move past 22 even though the previous
+        // archive was never distributed, because a `com.linksi.app.debug`/`com.linksi.app` install of
+        // 22 already exists on the test phones and an equal versionCode cannot update over it.
+        versionCode 23
+        versionName "3.1.1-enhanced.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

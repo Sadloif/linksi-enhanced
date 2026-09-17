@@ -8,7 +8,7 @@ the versioning conventions described in [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE
 decrease `versionCode`; the baseline is `versionCode` 20 / `versionName` 3.1.1).
 
 **Nothing in the `Unreleased` section has been released.** The build environment is now complete: the
-app assembles, `:app:testDebugUnitTest` runs **378 tests with 0 failures**, `:app:lintDebug` passes
+app assembles, `:app:testDebugUnitTest` runs **729 tests with 0 failures**, `:app:lintDebug` passes
 with **0 errors**, and a signed release APK is produced from `enhanced/integration`. See
 [TEST_REPORT.md](TEST_REPORT.md) §9 for the evidence and §9.5 for what is still untested.
 
@@ -16,7 +16,8 @@ with **0 errors**, and a signed release APK is produced from `enhanced/integrati
 
 ## [Unreleased]
 
-Work after the `3.1.1-enhanced.1` release. Not yet released as an APK.
+Work after the `3.1.1-enhanced.1` release. **Built as `3.1.1-enhanced.3` / versionCode 23**, signed and
+archived under `artifacts\releases\` — not yet distributed.
 
 ### Added
 
@@ -35,8 +36,77 @@ Work after the `3.1.1-enhanced.1` release. Not yet released as an APK.
 - **Site-specific extraction via yt-dlp**: `YtDlpExtractor`, `YtDlpInfoMapper`, `YtDlpRuntime`,
   `YtDlpDownloader` and `YtDlpProgressParser`, plus ABI splits so a per-device APK is not several
   times the size of a universal one.
+- **A download watchdog for site-engine downloads** (`YtDlpDownloadWatchdog.kt`): a 60 s limit on
+  transferring **no bytes** (scaled up to 8× for large files) and a 30 min hard limit, checked every
+  5 s. yt-dlp can hang on a silent socket indefinitely while its own options stay reactive, so
+  without this a user's download sat at a frozen percentage forever. Progress is measured in bytes,
+  not output lines, because yt-dlp prints destinations and post-processing steps without transferring
+  anything. 20 unit tests.
+- **`YtDlpInterruptedDownloadTest`** — a device test for what happens to an *interrupted* download:
+  that cancelling really stops the engine's child process, that the partial file survives and the
+  same request reuses its scratch directory, and that the watchdog ends a stalled download with a
+  retryable failure.
+- **`POST_NOTIFICATIONS` is now requested at runtime** (`DownloadNotificationPermission.kt`), from two
+  in-context triggers — enabling *Download notifications*, and the first quick-panel download while
+  that setting is on — and never at launch (specification §33). Upstream declared the permission but
+  never asked, so on Android 13+ every download notification was silently dropped. 8 unit tests.
+- `-e ytdlpDownloadTimeoutSeconds`, `-e ytdlpFormatId` and `-e ytdlpUrl` instrumentation arguments for
+  `YtDlpMediaSmokeTest`, so a device run's deadline can be set from measured throughput instead of
+  being guessed.
+- **Deterministic loopback device tests** for the two previously missing download proofs: a server
+  that transfers bytes and then stalls until the watchdog stops it, and a server that drops the
+  first connection so the retry must send `Range` at exactly the preserved partial-file length.
+- **`Android16CompatibilitySmokeTest`** — four API 36 device checks for the installed target SDK,
+  Share Receiver content, the Quick Panel's explicit-URL path, and onboarding controls staying above
+  the navigation bar.
+- **A configurable real-target extractor probe** in `YtDlpMediaSmokeTest`. It accepts one public URL,
+  verifies that it belongs to a primary target and reports success/failure without writing the URL or
+  extracted title to logcat.
+- **The site engine can refresh itself** (`YtDlpUpdater.kt`). `youtubedl-android` pins yt-dlp
+  **2024.09.27**, and by the time it mattered that copy could not read a single one of the nine real
+  Facebook links from the owner's export while a current release read five — including the
+  specification's own Reel example. The refresh fetches the published release from a fixed
+  `/releases/latest/download/` URL, **verifies its SHA-256 against the published `SHA2-256SUMS`**,
+  stages it beside the old engine, swaps by atomic rename, then probes the installed result and rolls
+  back if it does not run or does not take effect. It runs at most once a week and only when a
+  download already needs the engine. 15 unit tests.
+- **A "Site engine" section in Enhanced features**, showing the installed engine version and offering
+  a manual check — so an extractor that has gone stale is something the user can see and act on.
+- `aLinkSharedIntoTheAppIsStoredCleaned`: a regression test using the exact URL shared into the app on
+  a device, which is the case the rest of the cleaner suite cannot distinguish — every existing test
+  would pass with the cleaner implemented but never called on the save path.
+- **`DirectFileDownloaderInstrumentedTest`** — a loopback server serving PNG, PDF, ZIP and MP3 with
+  honest content types, asserting the classification, the derived extension, the byte count and the
+  readability of the published location, plus a `text/html` body that must be refused as a file.
+- **`SlowTransferInstrumentedTest`** — a loopback server that trickles 512 KiB in 4 KiB chunks over
+  about eight seconds, on both the emulator and the POCO, proving the download watchdog does not kill a
+  slow-but-healthy transfer. The test also asserts the transfer really was slow, so it cannot pass by
+  being instant.
+- **`PublishFallbackInstrumentedTest`** — constructs the state that makes MediaStore refuse a publish (a
+  visible entry already claiming the name), so the filesystem fallback runs on demand rather than
+  depending on MediaStore's mood. It asserts that the reported location **resolves to the bytes that
+  were written**, which is the property that matters and the one that has been wrong four times.
+- **`ClipboardPanelInstrumentedTest`** — covers the route the floating bubble's tap leads to, which had
+  no test at all: the clipboard is not read without window focus, non-link text never becomes a URL, and
+  the panel opened with no intent extra displays the clipboard link **cleaned**.
+- **`ServerResolverInstrumentedTest`** — a test HTTPS server that captures what the optional resolver
+  sends, so the specification's privacy rules are checked rather than asserted: the body is exactly
+  `{"url": …}`, the API key is a bearer header and never in the URL, an `http://` endpoint is skipped
+  before anything leaves the device, and a malformed body, an HTTP 500 and a refused connection are
+  all values rather than exceptions.
+- **The extractor logs what yt-dlp actually said.** Its stderr was classified into a user-facing
+  `MediaError` and then discarded, so the app could report only that a link was `Unsupported` while
+  yt-dlp knew exactly why. That single log line is what turned a year-old mystery about the owner's
+  own links into a one-line diagnosis. URL query strings are redacted first.
 
 ### Changed
+
+- **`targetSdk` is now 36.** Share Receiver and Quick Panel use edge-to-edge, the Quick Panel no
+  longer opts back into decor fitting, and onboarding applies safe-drawing insets to its page and
+  bottom controls. API 36 passed four core-flow and four focused compatibility tests.
+- Site-engine cancellation now awaits yt-dlp in a cancellable context. Caller cancellation destroys
+  the child promptly and rethrows; a watchdog-initiated stop remains a classified transient
+  `NETWORK` result.
 
 - **The project moved into a single `E:\Deepseek\Linksi` umbrella folder**: `repo\` (the checkout),
   `toolchain\`, `local\`, `keys\`, `artifacts\`, `evidence\`, `research\`, `scripts\` and
@@ -46,13 +116,134 @@ Work after the `3.1.1-enhanced.1` release. Not yet released as an APK.
   `assembleRelease` as **separate** Gradle invocations (in one invocation lint's debug analysis
   reaches for release-variant KSP output that does not exist yet and crashes), and streams output to
   a log instead of buffering it.
+- **A site-engine download's scratch directory is now named after the download, not the attempt**: a
+  SHA-256 digest of the URL, the format selector and the requested name. It is kept after a
+  *transient* failure and deleted after a success or a permanent one, so a retry resumes from
+  yt-dlp's `.part`/`.ytdl` state instead of re-downloading. Unfinished scratch directories older than
+  an hour are reclaimed at the start of the next download, so keeping them cannot fill the cache.
+- **yt-dlp is now invoked with `--fragment-retries 10` and `--force-ipv4`**: one refused DASH
+  fragment no longer abandons a 160-fragment stream, and IPv4 is the maintainer-endorsed workaround
+  for stalled CDN connections.
+- **yt-dlp's own output (stdout and stderr) now goes to logcat**, with every URL stripped of its
+  query string. Without the child's output the earlier "stalled merge" investigation had nothing to
+  read; with the raw URL in it, a CDN signature and expiry would have landed in a world-readable log.
 
 ### Fixed
 
+- **`BubbleService` failed silently on every path.** No foreground notification, a revoked overlay
+  permission, and a refused window all ended in `stopSelf()` with no log, and `addBubbleView` swallowed
+  its own exception — so a bubble that never appeared was indistinguishable from a copy that was never
+  detected. All four paths now state the reason. Adding the overlay view is itself logged on success,
+  which is what made the bubble's window state verifiable at all.
+- **A web page could be saved as a downloaded file, silently.** The direct downloader classifies a URL
+  from its response content type, and a server that serves an error document as `text/plain` or
+  `application/octet-stream` passed every check — measured on a device, where a Facebook Reel the site
+  engine could not read was written into Downloads as a 4 KB XML error page named
+  `1710485373378939.vndwapxh`, with no error shown. The body's leading bytes are now inspected for a
+  document signature (`<?xml`, `<!doctype`, `<html`, …) before anything is written, and the failure is
+  reported as `EXTRACTOR_FAILED` with a reason.
+- **A URL that turned out not to be a file never reached the site engine.** The panel offers one format
+  for such a link, so the download took the direct path, failed on the page guard, and reported a
+  failure — while the app contained an extractor that could fetch the video: tapping *Download* on a
+  Facebook Reel produced an error where the same URL yields a playable video through the app's own
+  engine. `DownloadWorker` now recognises that specific outcome and hands the request over before
+  giving up. Verified on the emulator: the Reel publishes as a 6,777,555-byte MP4.
+- **A dropped connection restarted the download instead of resuming it.** yt-dlp re-created the
+  destination on every in-run retry, so a 6.46 MiB transfer that reached 97.6% still failed after three
+  attempts — on a link that drops a connection every few megabytes, no download could ever finish.
+  `--continue` is now passed, and measured on the device: `Resuming download at byte 2096128` →
+  `100% of 6.46MiB`, producing the same 6,777,555-byte file the app publishes.
+- **Three connection retries was too few.** yt-dlp's default was kept while the app's own transfers
+  failed 88 KB short of the end of a 6.46 MiB file. Measured on the same link: `--retries 3` finished
+  **incomplete** after surviving 4 drops; `--retries 10` finished **complete** after surviving 8, in
+  the same nine seconds. Raised to 10 — nearly free, because each retry now resumes rather than
+  restarts.
+- **A fully downloaded file could be reported as a failed download.** Publishing flips `IS_PENDING` to
+  0, and that update was rejected with `SQLiteConstraintException: UNIQUE constraint failed:
+  files._data` because an earlier attempt at the same name had left a MediaStore row behind — in this
+  flow always, since the direct download opens a sink, is refused by the page guard, and aborts before
+  the site engine publishes. The user was told their 6.78 MB MP4 had failed while it sat in Downloads.
+  Publishing now clears any other row claiming that exact path and retries once, and reports failure
+  only when the entry is genuinely absent or still hidden.
+- **The same class of false failure when MediaStore renames the file.** When the requested name is
+  already taken, MediaStore saves the download as `clip (1).mp4`, and publishing the original name then
+  fails on the same unique constraint — so the app reported failure while the completed file was
+  visible in Downloads under the name the platform chose. Publishing now looks for a visible entry
+  holding this file, under either name, before concluding anything; finding one, it drops the stuck row
+  and returns the working entry.
+- **That fix then deleted the user's own file, and only the release build showed it.** Clearing a
+  "conflicting" row ran *before* the check for an already-published copy, and the row at that path is
+  usually the user's completed download — so the cleanup deleted the good row, the retry failed against
+  the emptied path, and the fallback found nothing because the row it needed had just been removed.
+  The check now runs first, and clearing residue only happens when nothing published holds the name.
+- **"Not enough storage is available" for a file that was sitting in Downloads.** Publishing can be
+  refused with `UNIQUE constraint failed: files._data` while the completed bytes are already in place —
+  observed on the signed release with a 6,777,555-byte MP4 present and its MediaStore row correct, and
+  not reproducible on the same rows minutes later. `commit` now checks the **filesystem** as a last
+  resort: a file in public Downloads matching the requested name whose size equals the bytes just
+  written is reported as the download's location. Three distinct MediaStore failures have now produced
+  the same false "it failed"; this is the first check that reads the bytes rather than the bookkeeping.
+- **A loopback HTTP server is now usable from instrumented tests, in the debug variant only.** The
+  app's network security policy permits cleartext nowhere — correctly — but that includes `127.0.0.1`,
+  and several tests drive the real downloader against a local server because it is the only way to
+  control a response body and its `Content-Type`. With cleartext blocked those requests failed with
+  `UnknownServiceException: CLEARTEXT communication to 127.0.0.1 not permitted`, delivered as an
+  ordinary `Failed(...)` result — so a loopback test could pass while proving nothing.
+  `src/debug/res/xml/network_security_config.xml` now exempts loopback for the debug variant; the
+  release build's policy is unchanged.
+- **A success reported for a file that had been deleted.** The publish fallback trusted a MediaStore
+  row over the filesystem, and a row outlives the file it describes: with the download deleted from
+  Downloads and the row left behind, the app reported "Download complete" and handed back a location
+  resolving to nothing. `commit` now asks the **filesystem first** (name plus exact written size) and
+  the collection's rows only afterwards, because the filesystem is the part the user can see.
 - `java.io.tmpdir is set to a directory that doesn't exist` when the release script ran after the
   relocation — the temp directory is now derived and created.
 - The release script reported a **successful** build as failed, because its Gradle helper leaked
   `Tee-Object` output into its own return value and the exit code then compared as an array.
+- **A site-engine download could run forever.** `YtDlpDownloader.download()` had no stall detection
+  and no deadline, so a hung socket left the progress bar frozen with a Cancel button that might not
+  work. See the watchdog above.
+- **Cancelling a site-engine download could take the app process down.** The library's
+  `CanceledException` was re-thrown as a `CancellationException` out of `download()`, and on Android
+  an uncaught coroutine cancellation in the worker's scope kills the process. A stop the app itself
+  caused (watchdog, or the caller's cancel) is now an ordinary failure value; only a cancellation
+  this class did not cause is re-thrown.
+- **Caller cancellation did not actually stop promptly.** The child was awaited inside
+  `NonCancellable`, so the earlier green test took about 230 seconds and only returned after the
+  stream completed. The POCO now cancels in 9.631 seconds with no surviving interpreter.
+- **The `YtDlpMediaSmokeTest` merge test could never pass.** Its 120-second deadline was smaller than
+  the ~300 s the sample transfer actually needs at the measured 71,596 B/s, so it reported the merge
+  path as unverified three times. The deadline is now 900 s, documented as a stuck-process bound, and
+  every run logs its elapsed time and throughput. The merge path is now verified end to end on real
+  hardware (21,210,202 bytes merged and published to MediaStore).
+- **A site-engine download that failed could lose its reason and read as a cancellation.**
+  `runDownload` ran its work in a `coroutineScope`, so when the yt-dlp job threw — a 404 from the
+  source, a refused connection — the scope was cancelled before the exception could be collected, and
+  the caller received a `CancellationException` instead of the `MediaError`. A plain 404 therefore
+  looked like the user having pressed Cancel. It now runs in a `supervisorScope`, so the job's own
+  exception reaches the collector and becomes the failure value it always should have been.
+- **Two paths in the progress callback could kill yt-dlp's stdout reader.** The callback runs on the
+  library's reader thread; a throw from logging, parsing or the stall bookkeeping stops that thread
+  and leaves yt-dlp blocked on a full pipe — a self-inflicted hang, and the failure mode the earlier
+  investigation had guessed at. The callback body is now guarded, the caller's own `onProgress`
+  cannot fail a download, and the channel send cannot throw on a closed channel.
+
+### Verified on real hardware
+
+These are readings from the physical POCO X3 Pro (Android 13 / MIUI 14), not code changes. They close
+the last unproven element of the specification. Full detail in `TEST_REPORT.md` §39.
+
+- **The floating bubble is visibly on screen.** The overlay window is present (`ty=APPLICATION_OVERLAY`,
+  `appop=SYSTEM_ALERT_WINDOW`, 156×156 px at (900,722)), has a surface, is ready for display and is not
+  obscured, and a screenshot of the composited framebuffer shows the purple-haloed Linksi mark floating
+  over the launcher. `BubbleService` logs `bubble shown as a TYPE_APPLICATION_OVERLAY window`. This was
+  the only element of the bubble module without device evidence, so the module is now complete.
+- **The accessibility service binds.** `Bound services:{Service[label=Linksi link detection (optional),
+  … eventTypes=[TYPE_VIEW_CLICKED, TYPE_WINDOW_STATE_CHANGED, TYPE_WINDOW_CONTENT_CHANGED,
+  TYPE_VIEW_TEXT_SELECTION_CHANGED]]}` with `Binding services:{}` and `Crashed services:{}`. A MIUI
+  quirk found along the way: after an `am force-stop`, enabling the service over `adb` leaves it parked
+  in `Binding services` indefinitely with no error, and only launching the app first recovers it
+  (`TEST_REPORT.md` §39.4). This is a developer-automation trap, not an end-user one.
 
 ---
 

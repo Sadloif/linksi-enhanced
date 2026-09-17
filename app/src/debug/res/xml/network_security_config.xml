@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG BUILD ONLY. The release build keeps `cleartextTrafficPermitted="false"` in
+  src/main/res/xml/network_security_config.xml; this file overrides it for the debug variant.
+
+  Why it exists: several instrumented tests drive the real downloader against a loopback HTTP server,
+  which is the only way to control a response body and its Content-Type. Android's default policy
+  blocks cleartext to `127.0.0.1` exactly like any other host, and the resulting failure is an
+  `UnknownServiceException: CLEARTEXT communication to 127.0.0.1 not permitted` surfaced as a
+  `DirectDownloadResult.Failed`. That is indistinguishable from a genuine network failure, so tests
+  written against loopback can pass while proving nothing - which is what happened before this file
+  existed.
+
+  Loopback only: no other host is permitted cleartext, so nothing about the app's behaviour on a real
+  network changes.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!-- The test server binds 127.0.0.1 on an ephemeral port; domain entries carry no port. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

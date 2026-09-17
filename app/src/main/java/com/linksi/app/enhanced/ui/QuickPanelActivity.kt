@@ -3,6 +3,7 @@ package com.linksi.app.enhanced.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -22,11 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linksi.app.MainActivity
 import com.linksi.app.R
 import com.linksi.app.enhanced.detect.ClipboardUrlReader
+import com.linksi.app.enhanced.download.rememberDownloadNotificationRequest
+import com.linksi.app.enhanced.download.rememberDownloadNotificationsEnabled
 import com.linksi.app.ui.theme.LinksTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -75,7 +77,7 @@ class QuickPanelActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        enableEdgeToEdge()
 
         // An explicit URL (the link options sheet) wins and short-circuits the clipboard entirely.
         val explicit = intent?.getStringExtra(DownloadNavigation.EXTRA_PANEL_URL)
@@ -107,6 +109,15 @@ class QuickPanelActivity : AppCompatActivity() {
         val state by viewModel.uiState.collectAsStateWithLifecycle()
         val context = LocalContext.current
 
+        // The first download is where `POST_NOTIFICATIONS` is asked for, and it has to be asked for
+        // *here*: the request needs an activity result registry, which DownloadWorker - the thing
+        // that actually downloads - does not have and must not need. The worker keeps tolerating the
+        // permission being absent, so a denial only loses the notice, never the download. Nothing is
+        // asked at launch, and nothing is asked while the user has the feature switched off
+        // (specification section 33), which is what the stored preference decides.
+        val downloadNotificationsEnabled by rememberDownloadNotificationsEnabled()
+        val requestNotificationPermission = rememberDownloadNotificationRequest()
+
         // Compose-side fallback for the case where focus arrived before the first composition.
         // It still refuses to read unless the window is focused right now. The explicit extra is
         // never re-read here: `panelUrl` was already set from it in `onCreate`.
@@ -134,7 +145,12 @@ class QuickPanelActivity : AppCompatActivity() {
             state = state,
             onSave = viewModel::save,
             onCleanUrl = viewModel::cleanUrl,
-            onDownload = viewModel::download,
+            onDownload = { formatId ->
+                // Requested before the download is enqueued, and never awaited: the download is
+                // independent of the answer, so the panel must not wait for the dialog.
+                requestNotificationPermission(downloadNotificationsEnabled)
+                viewModel.download(formatId)
+            },
             onCancelDownload = viewModel::cancelDownload,
             onRetryDownload = viewModel::retryDownload,
             onDismissStatus = viewModel::dismissDownloadStatus,

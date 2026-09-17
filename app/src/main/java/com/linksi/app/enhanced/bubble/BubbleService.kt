@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -83,21 +84,28 @@ class BubbleService : Service() {
         // few seconds of the start request, and the bubble itself must never be the thing that
         // fails first.
         if (!promoteToForeground()) {
+            Log.w(TAG, "no foreground notification, so the bubble cannot stay up")
             stopSelf()
             return
         }
         if (!canDrawOverlays(this)) {
             // The permission can be revoked between the check in the companion helper and this
             // service actually starting. Fail soft and disappear.
+            Log.w(TAG, "the overlay permission is not granted, so no bubble is drawn")
             stopSelf()
             return
         }
         // Start settings arrive through onStartCommand, which always runs after onCreate and
         // carries the same intent, so nothing is read from the framework here.
         if (!addBubbleView()) {
+            // Each of these paths used to be silent, which made a bubble that never appeared
+            // indistinguishable from a copy that was never detected. `addBubbleView` logs its own
+            // cause; this records that the service is giving up.
+            Log.w(TAG, "the bubble view was refused by the window manager")
             stopSelf()
             return
         }
+        Log.i(TAG, "bubble shown as a TYPE_APPLICATION_OVERLAY window")
         scheduleAutoDismiss()
     }
 
@@ -189,7 +197,13 @@ class BubbleService : Service() {
         bubbleView = view
         layoutParams = params
         true
-    }.getOrDefault(false)
+    }.getOrElse { error ->
+        // The cause matters: a missing overlay permission, a window-type restriction on a given ROM,
+        // and a bad layout parameter all end in the same "no bubble", and without this line they were
+        // indistinguishable from a copy that was never detected.
+        Log.w(TAG, "adding the overlay view failed", error)
+        false
+    }
 
     private fun createBubbleView(diameter: Int): View {
         val background = GradientDrawable().apply {
@@ -410,6 +424,8 @@ class BubbleService : Service() {
     }
 
     companion object {
+
+        private const val TAG = "BubbleService"
 
         const val ACTION_DISMISS = "com.linksi.app.enhanced.bubble.DISMISS"
         const val EXTRA_SIZE = "com.linksi.app.enhanced.bubble.EXTRA_SIZE"

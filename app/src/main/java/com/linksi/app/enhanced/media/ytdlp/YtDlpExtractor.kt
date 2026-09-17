@@ -1,5 +1,6 @@
 package com.linksi.app.enhanced.media.ytdlp
 
+import android.util.Log
 import com.linksi.app.enhanced.capability.RuntimeCapabilities
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
@@ -132,6 +133,13 @@ class YtDlpExtractor @Inject constructor(
      * A missing payload means yt-dlp refused the URL rather than that the app is broken, so its
      * stderr is classified: "Unsupported URL" is the site's answer and becomes `Unsupported`, while
      * "private", "login required" and a timeout become the matching user-facing failure.
+     *
+     * The raw output is logged here, and that is not decoration. Without it this app knew only that
+     * a link was `Unsupported` while yt-dlp knew exactly why - which extractor ran, what the site
+     * answered, whether a version was too old - and the difference between "this site blocked us"
+     * and "our engine is a year out of date" was invisible. It is the log line that turned a
+     * year-long mystery about the owner's own links into a one-line diagnosis. URLs are stripped of
+     * their query strings first, because a media URL carries a signature.
      */
     private fun failureFor(
         url: String,
@@ -139,6 +147,7 @@ class YtDlpExtractor @Inject constructor(
         message: String?,
         cause: Throwable?
     ): MediaExtractionResult {
+        Log.i(TAG, "engine refused $source: ${redactUrls(message.orEmpty().take(600))}")
         val error = MediaError.classify(message)
         return if (error == MediaError.UNSUPPORTED_SITE) {
             MediaExtractionResult.Unsupported(url, source)
@@ -168,6 +177,8 @@ class YtDlpExtractor @Inject constructor(
          * backend, low enough that the two-request direct probe always runs first.
          */
         const val PRIORITY = 50
+
+        private const val TAG = "YtDlpExtractor"
 
         /** Long enough for a slow CDN to answer, short enough that a dead host settles. */
         private const val SOCKET_TIMEOUT_SECONDS = 20

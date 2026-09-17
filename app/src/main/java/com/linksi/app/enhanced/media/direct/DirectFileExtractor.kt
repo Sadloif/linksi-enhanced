@@ -201,6 +201,19 @@ object DirectFileClassifier {
      */
     private const val OCTET_STREAM_EXTENSION = "octetstr"
 
+    /** Markers that open a document. Deliberately only openers: media never begins with these. */
+    private val MARKUP_PREFIXES = listOf(
+        "<?xml",
+        "<!doctype",
+        "<html",
+        "<rss",
+        "<feed",
+        "<svg"
+    )
+
+    /** How much of the leading text is examined. Enough for a declaration plus whitespace. */
+    private const val MARKUP_SNIFF_CHARS = 256
+
     /** Types a browser renders as a document. Everything else is treated as a downloadable file. */
     private val PAGE_LIKE_TYPES = setOf(
         "text/html",
@@ -230,6 +243,27 @@ object DirectFileClassifier {
     fun isDownloadable(contentType: String?, url: String): Boolean {
         val mime = normalize(contentType) ?: return MediaSourceDetector.looksLikeDirectFile(url)
         return mime !in PAGE_LIKE_TYPES
+    }
+
+    /**
+     * Whether these leading bytes are a document rather than media (pure, unit tested).
+     *
+     * This exists because a content type is a claim, not a fact, and the failure it guards against is
+     * silent: a URL that is really a page, served as `text/plain` or `application/octet-stream`, is
+     * saved into the user's Downloads folder as a file with no error at all. Measured on a device - a
+     * Facebook Reel URL the site engine could not read fell through to the direct downloader and
+     * deposited a 4 KB XML error page named `1710485373378939.vndwapxh`.
+     *
+     * Only the *start* of the body is examined, and only for signatures that a media container never
+     * begins with. Legitimate media does not start with `<`, so a false positive needs a text file the
+     * user deliberately downloaded that happens to begin with one of these markers - and even then the
+     * cost is a clear failure instead of a file that will not play.
+     */
+    fun looksLikeMarkup(head: ByteArray): Boolean {
+        val text = String(head, Charsets.UTF_8).trimStart()
+        if (text.isEmpty()) return false
+        val lowered = text.take(MARKUP_SNIFF_CHARS).lowercase()
+        return MARKUP_PREFIXES.any { lowered.startsWith(it) }
     }
 
     /**

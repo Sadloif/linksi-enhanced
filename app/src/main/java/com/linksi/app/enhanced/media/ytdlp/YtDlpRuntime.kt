@@ -52,7 +52,8 @@ sealed interface YtDlpInitStatus {
  */
 @Singleton
 class YtDlpRuntime @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val updater: YtDlpUpdater
 ) {
 
     private val initLock = Mutex()
@@ -128,9 +129,31 @@ class YtDlpRuntime @Inject constructor(
             }
 
             status = resolved
+
+            // Site extractors break constantly, and the copy the wrapper ships as a raw resource is
+            // whatever was current when this dependency was pinned. The refresh happens *here* -
+            // after the engine is known to start, and only because something is already asking for a
+            // real download - so it can never be startup work (specification section 26), and its
+            // result is a value that cannot fail the download that triggered it.
+            if (resolved is YtDlpInitStatus.Ready) {
+                Log.i(TAG, "site engine ${updater.installedVersion() ?: "unknown"}; " +
+                    "refresh: ${updater.refreshIfStale()}")
+            }
+
             resolved
         }
     }
+
+    /**
+     * The version of the site engine currently on disk, by running it, or null when it cannot run.
+     *
+     * Exposed for the settings screen: the wrapper's own `versionName` reads a preference that only
+     * its own updater writes, so it is null for a freshly installed app.
+     */
+    suspend fun engineVersion(): String? = updater.installedVersion()
+
+    /** Replaces the site engine with the published release, whatever the last check's age. */
+    suspend fun refreshEngine(): YtDlpRefreshResult = updater.refreshIfStale(force = true)
 
     /** The application context the engine was started with. */
     internal val appContext: Context get() = context.applicationContext

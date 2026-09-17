@@ -27,6 +27,12 @@ local.properties
 *.jks
 *.keystore
 
+# JVM crash dumps and JIT replay logs. The Gradle daemon is killed by memory pressure on this
+# machine often enough that these accumulate in the module directory; they are not source and
+# must never be committed. See SESSION_HANDOVER.md section 5.
+hs_err_pid*.log
+replay_pid*.log
+
 # OS files
 .DS_Store
 captures/

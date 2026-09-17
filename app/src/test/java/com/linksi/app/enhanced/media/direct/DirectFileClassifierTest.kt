@@ -14,6 +14,44 @@ import org.junit.Test
  */
 class DirectFileClassifierTest {
 
+    // ── A page pretending to be a file ────────────────────────────────────────
+
+    @Test
+    fun aLeadingDocumentSignatureIsDetected() {
+        // The guard that stops a page being saved as a file. Measured on a device: a Facebook Reel URL
+        // the site engine could not read came back as `text/plain` containing exactly this shape, and
+        // was written into Downloads as `1710485373378939.vndwapxh` with no error shown.
+        assertTrue(
+            DirectFileClassifier.looksLikeMarkup(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?><error><code>1545012</code></error>"
+                    .toByteArray()
+            )
+        )
+        assertTrue(DirectFileClassifier.looksLikeMarkup("<!DOCTYPE html><html>…".toByteArray()))
+        assertTrue(DirectFileClassifier.looksLikeMarkup("<html lang=\"en\">".toByteArray()))
+        assertTrue(DirectFileClassifier.looksLikeMarkup("   \n  <?xml version=\"1.0\"?>".toByteArray()))
+    }
+
+    @Test
+    fun realMediaIsNotMistakenForADocument() {
+        // A false positive would refuse a legitimate download, so the signature is deliberately only
+        // the openers. Each of these is the real start of a container this app downloads.
+        assertFalse(
+            DirectFileClassifier.looksLikeMarkup(
+                byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + "JFIF".toByteArray()
+            )
+        )
+        assertFalse(DirectFileClassifier.looksLikeMarkup("ftypisom".toByteArray()))
+        assertFalse(
+            DirectFileClassifier.looksLikeMarkup(
+                byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte())
+            )
+        )
+        assertFalse(DirectFileClassifier.looksLikeMarkup("ID3\u0003".toByteArray()))
+        assertFalse(DirectFileClassifier.looksLikeMarkup("%PDF-1.7".toByteArray()))
+        assertFalse(DirectFileClassifier.looksLikeMarkup(ByteArray(0)))
+    }
+
     // ── Content type -> extension ─────────────────────────────────────────────
 
     @Test

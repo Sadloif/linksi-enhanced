@@ -88,6 +88,23 @@ class UrlCleanerTest {
         )
     }
 
+    /**
+     * The same rule, on a link that was actually shared into the app on a device.
+     *
+     * This exact URL was handed to the share receiver through `am start -a android.intent.action.SEND`
+     * on the emulator, saved, and then read back out of the app's own SQLite database, where it is
+     * stored as `https://www.facebook.com/reel/28178846218433472` with both trackers gone. It is kept
+     * here because that is the difference between the cleaner being unit tested and the cleaner being
+     * **wired in**: the preview could show a cleaned URL while the stored row kept its trackers, and
+     * only reading the row proves otherwise.
+     */
+    @Test
+    fun aLinkSharedIntoTheAppIsStoredCleaned() {
+        val input = "https://www.facebook.com/reel/28178846218433472/?utm_source=round4&fbclid=trackme99"
+        assertEquals("https://www.facebook.com/reel/28178846218433472", cleaned(input))
+        assertEquals(listOf("utm_source", "fbclid"), removed(input))
+    }
+
     @Test
     fun facebookReelCleaningIsIdempotent() {
         val once = cleaned("https://www.facebook.com/reel/1710485373378939/?referral_source=external_link")
