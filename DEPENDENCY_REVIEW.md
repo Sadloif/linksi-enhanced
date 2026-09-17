@@ -368,3 +368,68 @@ jurisdictions, anti-circumvention law. That question applies equally to *every* 
 document — GPL, MIT or server-side — and is flagged for legal review, not resolved here. FFmpeg
 patent exposure (H.264/H.265, x264/x265/kvazaar) is likewise a separate axis from copyright and
 argues further for Media3's platform-codec path.
+
+---
+
+## 8. The decision actually taken, and its consequences
+
+The project owner's instruction was to **ignore the licensing analysis and build a working
+downloader**. This section records what was adopted and what it costs, so the decision is documented
+rather than implicit.
+
+### 8.1 Adopted
+
+| Coordinates | Version | Licence | Why this one |
+|---|---|---|---|
+| `io.github.junkfood02.youtubedl-android:library` | **0.17.3** | **GPL-3.0** | Maintained (published by the `yausername` build into JunkFood02's Maven namespace), covers all five target services, ships Python |
+| `io.github.junkfood02.youtubedl-android:ffmpeg` | **0.17.3** | **GPL-3.0** | needed to mux separate video and audio streams, which most Instagram/TikTok formats require |
+
+**0.17.3 rather than 0.18.x on purpose.** Section 4 of the research documents an open, unassigned
+crash in 0.18.x on 16 KB-page devices (five libraries inside `libffmpeg.zip.so` are still 4 KB
+aligned, giving an uncatchable `linker64` abort), and 0.17.3 is what the Seal app ships. The
+JitPack coordinate (`com.github.yausername.youtubedl-android`) is dead for every version ≥ 0.15.0;
+Maven Central is the only usable source.
+
+### 8.2 The consequence, stated plainly
+
+**The distributed APK is now a GPL-3.0 combined work.** Linking `youtubedl-android` and its bundled
+FFmpeg makes the whole application subject to GPL-3.0, "regardless of how they are packaged". If
+this build is ever given to anyone else, the obligations are: release the complete corresponding
+source under GPL-3.0, carry the licence and notices, and provide the installation information
+GPL-3 requires for user-installable software. **Private personal use carries no such obligation.**
+The `MediaExtractor` abstraction keeps the engine replaceable, but it does not launder the licence.
+
+Removing this dependency is a build-file change plus deleting one package: everything else in the
+app is licence-clean, and the direct-file downloader, the resolver and the whole URL-cleaning and
+detection layer never touched it.
+
+### 8.3 Measured cost
+
+The bundled payload is one Python interpreter plus one FFmpeg per ABI, so the app now configures
+ABI splits (`arm64-v8a`, plus a universal APK) instead of shipping one fat artifact:
+
+| Artifact | Size | Note |
+|---|---|---|
+| Release APK, before this dependency | 5.21 MB | R8-minified, no native payload |
+| Debug APK, `arm64-v8a` only | ~54.8 MB | split |
+| Debug APK, universal | ~138.4 MB | carries every ABI's payload |
+| Release APK, `arm64-v8a` only | not yet measured | R8 shrinks the Kotlin, not the Python/FFmpeg payload, so expect the same order of magnitude |
+
+`packaging { jniLibs { useLegacyPackaging = true } }` is required by the library: without it the
+loader maps the `.so` files straight out of the compressed APK and the bundled payload fails.
+
+`proguard-rules.pro` gained keeps for `com.yausername.youtubedl_android.**`,
+`com.yausername.youtubedl_common.**`, `com.fasterxml.jackson.**` and `org.apache.commons.io.**`.
+The library reflects over Jackson's mapper types in a static initialiser, so without those keeps a
+**release** build fails at the first `YoutubeDL.getInstance()` call — a runtime crash, not a build
+error, which is worth knowing before shipping a minified build.
+
+### 8.4 Device verification of the adopted engine
+
+On the Android 16 x86_64 emulator, through the production extractor: yt-dlp initialised, the bundled
+Python and FFmpeg native libraries loaded and executed, and a real URL extracted into 11 formats with
+correct `requiresMuxing`/`isAudioOnly` flags. A YouTube URL was refused with `LOGIN_REQUIRED`
+(`[youtube] … Please sign in`) — this is the datacentre IP being blocked, correctly classified as a
+user-facing reason rather than a crash. The mux path (download a video-only stream, then merge with
+FFmpeg) was **not** completed: on the emulator that download hung inside the Python subprocess and
+had to be killed. Muxing is therefore implemented and reasoned about but **not verified end to end**.
