@@ -60,6 +60,7 @@ data class SettingsUiState(
     val folderLockEnabled: Boolean = false,
     val trashBinEnabled: Boolean = true,
     val showQuickFilters: Boolean = true,
+    val autoCleanUrls: Boolean = true,
     val globalPreventScreenshot: Boolean = false,
     val exportIncludeLocked: Boolean = false
 )
@@ -120,6 +121,7 @@ class SettingsViewModel @Inject constructor(
                         folderLockEnabled = prefs[SECURITY_FOLDER_LOCK_ENABLED] ?: false,
                         trashBinEnabled = prefs[TRASH_BIN_ENABLED] ?: true,
                         showQuickFilters = prefs[SHOW_QUICK_FILTERS] ?: true,
+                        autoCleanUrls = prefs[AUTO_CLEAN_URLS] ?: true,
                         globalPreventScreenshot = prefs[GLOBAL_PREVENT_SCREENSHOT] ?: false,
                         exportIncludeLocked = prefs[EXPORT_INCLUDE_LOCKED] ?: false
                     )
@@ -432,6 +434,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.dataStore.edit { it[TRASH_BIN_ENABLED] = enabled }
             _uiState.update { it.copy(trashBinEnabled = enabled) }
+        }
+    }
+
+    fun setAutoCleanUrls(enabled: Boolean) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[AUTO_CLEAN_URLS] = enabled }
+            _uiState.update { it.copy(autoCleanUrls = enabled) }
         }
     }
 

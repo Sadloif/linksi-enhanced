@@ -32,10 +32,12 @@ fun ThemeSettingsScreen(
     useAmoled: Boolean,
     useDynamicColor: Boolean,
     showQuickFilters: Boolean,
+    autoCleanUrls: Boolean,
     onThemeSelected: (String) -> Unit,
     onAmoledToggled: (Boolean) -> Unit,
     onDynamicColorToggled: (Boolean) -> Unit,
     onQuickFiltersToggled: (Boolean) -> Unit,
+    onAutoCleanUrlsToggled: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     Scaffold(
@@ -230,6 +232,27 @@ fun ThemeSettingsScreen(
                         leadingContent = { IconContainer(Icons.Outlined.FilterList) },
                         trailingContent = {
                             Switch(checked = showQuickFilters, onCheckedChange = onQuickFiltersToggled)
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+
+                    // URL cleaning on save (specification section 9.5)
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                stringResource(id = R.string.auto_clean_urls),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                stringResource(id = R.string.auto_clean_urls_subtitle),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
+                        leadingContent = { IconContainer(Icons.Outlined.Link) },
+                        trailingContent = {
+                            Switch(checked = autoCleanUrls, onCheckedChange = onAutoCleanUrlsToggled)
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                     )

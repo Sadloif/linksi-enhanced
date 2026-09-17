@@ -53,6 +53,7 @@ data class HomeUiState(
     val folderLockEnabled: Boolean = false,
     val showQuickFilters: Boolean = true,
     val trashBinEnabled: Boolean = true,
+    val autoCleanUrls: Boolean = true,
     val globalPreventScreenshot: Boolean = false
 )
 
@@ -104,6 +105,7 @@ class HomeViewModel @Inject constructor(
                         folderLockEnabled = prefs[SECURITY_FOLDER_LOCK_ENABLED] ?: false,
                         showQuickFilters = prefs[SHOW_QUICK_FILTERS] ?: true,
                         trashBinEnabled = prefs[TRASH_BIN_ENABLED] ?: true,
+                        autoCleanUrls = prefs[AUTO_CLEAN_URLS] ?: true,
                         globalPreventScreenshot = prefs[GLOBAL_PREVENT_SCREENSHOT] ?: false
                     )
                 }
@@ -224,7 +226,12 @@ class HomeViewModel @Inject constructor(
         previewImageOverride: String? = null
     ) {
         viewModelScope.launch {
-            val normalizedUrl = normalizeUrl(url)
+            // Enhanced (specification 9.1.9 and 9.5): optionally strip known tracking parameters
+            // before the URL is normalised and de-duplicated. cleanOrSelf returns the input
+            // untouched when the URL cannot be parsed, so cleaning can never lose a link, and
+            // normalizeUrl still performs the existing scheme and trailing slash handling.
+            val candidateUrl = if (_uiState.value.autoCleanUrls) UrlCleaner.cleanOrSelf(url) else url.trim()
+            val normalizedUrl = normalizeUrl(candidateUrl)
             if (repository.isUrlAlreadySaved(normalizedUrl)) {
                 _uiState.update { it.copy(snackbarMessage = context.getString(R.string.link_already_saved)) }
                 return@launch

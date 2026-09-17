@@ -40,3 +40,6 @@ val SKIP_UPDATE_UNTIL = longPreferencesKey("skip_update_until")
 val TRASH_BIN_ENABLED = booleanPreferencesKey("trash_bin_enabled")
 val GLOBAL_PREVENT_SCREENSHOT = booleanPreferencesKey("global_prevent_screenshot")
 val EXPORT_INCLUDE_LOCKED = booleanPreferencesKey("export_include_locked")
+
+// Enhanced: URL cleaning (specification section 9.5). Recommended default: enabled.
+val AUTO_CLEAN_URLS = booleanPreferencesKey("auto_clean_urls")

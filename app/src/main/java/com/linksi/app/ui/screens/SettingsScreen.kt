@@ -493,6 +493,8 @@ fun SettingsScreen(
             useAmoled = state.useAmoled,
             useDynamicColor = state.useDynamicColor,
             showQuickFilters = state.showQuickFilters,
+            autoCleanUrls = state.autoCleanUrls,
+            onAutoCleanUrlsToggled = { viewModel.setAutoCleanUrls(it) },
             onThemeSelected = { viewModel.setThemeMode(it) },
             onAmoledToggled = { viewModel.setAmoledEnabled(it) },
             onDynamicColorToggled = { viewModel.setDynamicColorEnabled(it) },
