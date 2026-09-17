@@ -254,10 +254,10 @@ place so the progression is honest.
 
 | Problem | Resolution |
 |---|---|
-| No Android SDK | Installed into the workspace at `E:\Deepseek\android-sdk`: `platforms;android-34/35/36`, `build-tools;34.0.0/35.0.0/36.0.0`, `platform-tools`. Google's own `sdkmanager` cannot reach `dl.google.com` in this sandbox (`IO exception while downloading manifest`), so the component zips were fetched directly from the repository manifest with the JDK's HTTP client — script: `E:\Deepseek\install-sdk-packages.ps1`. |
-| No `jlink` | The JetBrains Runtime bundled with PyCharm has no `jlink`, which AGP's `JdkImageTransform` requires. A real **Temurin JDK 17.0.20.1** was installed at `E:\Deepseek\jdk-17`. |
+| No Android SDK | Installed into the workspace at `E:\Deepseek\Linksi\toolchain\android-sdk`: `platforms;android-34/35/36`, `build-tools;34.0.0/35.0.0/36.0.0`, `platform-tools`. Google's own `sdkmanager` cannot reach `dl.google.com` in this sandbox (`IO exception while downloading manifest`), so the component zips were fetched directly from the repository manifest with the JDK's HTTP client — script: `E:\Deepseek\Linksi\scripts\install-sdk-packages.ps1`. |
+| No `jlink` | The JetBrains Runtime bundled with PyCharm has no `jlink`, which AGP's `JdkImageTransform` requires. A real **Temurin JDK 17.0.20.1** was installed at `E:\Deepseek\Linksi\toolchain\jdk-17`. |
 | AGP wrote `~/.android/debug.keystore` outside the workspace | `app/build.gradle` now supports an opt-in `DEBUG_KEYSTORE_PATH` override; unset, behaviour is unchanged. |
-| Release signing key absent | A private 4096-bit RSA release keystore was generated **outside the repository** (`E:\Deepseek\keys\linksi-enhanced-release.jks`, credentials in `KEYSTORE_CREDENTIALS.txt`). It is gitignored by construction and must be backed up; losing it means no future in-place update. |
+| Release signing key absent | A private 4096-bit RSA release keystore was generated **outside the repository** (`E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks`, credentials in `KEYSTORE_CREDENTIALS.txt`). It is gitignored by construction and must be backed up; losing it means no future in-place update. |
 
 ### 9.2 Baseline APK archived (specification section 6.4)
 
@@ -270,7 +270,7 @@ size   : 24,141,629 bytes (23.02 MB)
 sha256 : 665F3EF1F952064C320F97BA746F7655E92AF79F57372C7457B1D61CC8D5CE1C
 ```
 
-Archived under `E:\Deepseek\baseline-artifacts\` with a `.sha256` sidecar. It is a **debug** build:
+Archived under `E:\Deepseek\Linksi\artifacts\baseline\` with a `.sha256` sidecar. It is a **debug** build:
 no release build is possible from the baseline because the upstream signing key does not exist.
 
 ### 9.3 The unit tests now run in the real Android module
@@ -302,10 +302,10 @@ The APK also assembles: `:app:assembleDebug` produces `app-debug.apk`, 23.19 MB.
 ### 9.4 Build environment recipe (reproducible)
 
 ```powershell
-$env:JAVA_HOME='E:\Deepseek\jdk-17'                      # a real JDK: AGP needs jlink
-$env:GRADLE_USER_HOME='E:\Deepseek\.gradle-home-main'    # keep caches inside the workspace
-$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\.tmp'
-$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\keys\debug.keystore'
+$env:JAVA_HOME='E:\Deepseek\Linksi\toolchain\jdk-17'                      # a real JDK: AGP needs jlink
+$env:GRADLE_USER_HOME='E:\Deepseek\Linksi\local\.gradle-home-main'    # keep caches inside the workspace
+$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\Linksi\local\.tmp'
+$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\Linksi\keys\debug.keystore'
 & .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain --no-watch-fs
 ```
 
@@ -375,7 +375,7 @@ CLEANED URL STORED: True
 RAW TRACKING URL STORED (should be False): False
 ```
 
-Evidence files: `E:\Deepseek\emulator-evidence\` (`linksi-home.png`, `share-receiver.png`,
+Evidence files: `E:\Deepseek\Linksi\evidence\` (`linksi-home.png`, `share-receiver.png`,
 `linksi_db`, `logcat.txt`, `share-ui.xml`).
 
 ### 10.3 A caveat about `connectedDebugAndroidTest`

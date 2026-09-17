@@ -355,7 +355,7 @@ Read this section before quoting anything above as fact.
 6. **16 KB page-size alignment was not checked** for any candidate artifact. For the MIT wrapper
    this is an explicit open action (extract `libpython3.13.so` and inspect `PT_LOAD` alignment).
 7. **The enhanced module contracts have not been compiled.** They live on
-   `feature/enhanced-modules` (worktree `E:\Deepseek\wt-modules`) and are untracked there; no
+   `feature/enhanced-modules` (worktree `E:\Deepseek\Linksi\repo`) and are untracked there; no
    Gradle task has ever compiled or executed them.
 8. **The dependency research's own unconfirmed items carry over unchanged** — `certifi`'s licence,
    the per-version `minCompileSdk` enforcement inside published Media3 AARs, the wrapper's bundled

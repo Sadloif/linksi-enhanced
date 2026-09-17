@@ -3,7 +3,7 @@
 Mandatory licence review for the Linksi Enhanced private project (specification section 5).
 
 - **Review date**: 2026-10-09
-- **Reviewed source**: `https://github.com/AsukaAzure/Linksi` cloned locally to `E:\Deepseek\Linksi`
+- **Reviewed source**: `https://github.com/AsukaAzure/Linksi` cloned locally to `E:\\Deepseek\\Linksi\\repo`
 - **Reviewed revision**: `0f4af65eb4fd87fcc77b79717071f975f7ccd122` (branch `master`, 115 commits)
 - **Reviewer**: automated code-review process on behalf of the repository owner
 - **Status**: **ACTION REQUIRED before any redistribution.** See section 3.
@@ -158,11 +158,11 @@ strongly-copyleft components. Recorded here as hard constraints:
 Commands used to establish the facts above, reproducible from the clone:
 
 ```bash
-git -C E:\Deepseek\Linksi ls-files | grep -iE 'licen|copying|notice'      # no output
-git -C E:\Deepseek\Linksi log --all --name-status --diff-filter=AD \
+git -C E:\\Deepseek\\Linksi\\repo ls-files | grep -iE 'licen|copying|notice'      # no output
+git -C E:\\Deepseek\\Linksi\\repo log --all --name-status --diff-filter=AD \
     -- '*LICEN*' '*COPYING*' '*NOTICE*'                                   # no output
-git -C E:\Deepseek\Linksi shortlog -sne --all
-git -C E:\Deepseek\Linksi log --reverse --format='%h %an <%ae> %ad %s' | head -3
+git -C E:\\Deepseek\\Linksi\\repo shortlog -sne --all
+git -C E:\\Deepseek\\Linksi\\repo log --reverse --format='%h %an <%ae> %ad %s' | head -3
 ```
 
 ```powershell

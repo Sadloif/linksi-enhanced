@@ -61,17 +61,17 @@ sdk.dir=E:\\path\\to\\android-sdk
 | Item | Value |
 |---|---|
 | JDK | JetBrains Runtime **21.0.4** (a full JDK, `javac` present) at `C:\Program Files\JetBrains\PyCharm Community Edition 2024.2.4\jbr` |
-| Android SDK | `E:\Deepseek\android-sdk`, containing `platforms/android-34`, `android-35`, `android-36`, `build-tools/34.0.0`, `35.0.0`, `36.0.0`, `platform-tools`, `cmdline-tools`, `licenses` |
-| Gradle user home | `E:\Deepseek\.gradle-home` (must be inside the workspace — see section 7.2) |
-| Android SDK path variable | `ANDROID_HOME=E:\Deepseek\android-sdk` (or `local.properties`; neither is committed) |
+| Android SDK | `E:\Deepseek\Linksi\toolchain\android-sdk`, containing `platforms/android-34`, `android-35`, `android-36`, `build-tools/34.0.0`, `35.0.0`, `36.0.0`, `platform-tools`, `cmdline-tools`, `licenses` |
+| Gradle user home | `E:\Deepseek\Linksi\local\.gradle-home` (must be inside the workspace — see section 7.2) |
+| Android SDK path variable | `ANDROID_HOME=E:\Deepseek\Linksi\toolchain\android-sdk` (or `local.properties`; neither is committed) |
 
 A usable shell preamble for this machine:
 
 ```powershell
 $env:JAVA_HOME         = 'C:\Program Files\JetBrains\PyCharm Community Edition 2024.2.4\jbr'
-$env:ANDROID_HOME      = 'E:\Deepseek\android-sdk'
-$env:GRADLE_USER_HOME  = 'E:\Deepseek\.gradle-home'
-Set-Location E:\Deepseek\wt-docs
+$env:ANDROID_HOME      = 'E:\Deepseek\Linksi\toolchain\android-sdk'
+$env:GRADLE_USER_HOME  = 'E:\Deepseek\Linksi\local\.gradle-home'
+Set-Location E:\Deepseek\Linksi\repo
 ```
 
 ---
@@ -150,7 +150,7 @@ Run once, store the file **outside the repository tree** and back it up:
 
 ```powershell
 keytool -genkeypair -v `
-  -keystore E:\Deepseek\keys\linksi-enhanced-release.jks `
+  -keystore E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks `
   -alias linski-enhanced `
   -keyalg RSA -keysize 4096 -validity 10000 `
   -storetype JKS
@@ -163,15 +163,15 @@ Rules that must survive every future release:
 2. **Never commit it.** `.gitignore:20-21` excludes `*.jks` and `*.keystore`.
 3. Record the certificate fingerprint once and compare it on every release (section 5).
 
-> A keystore exists in this environment at `E:\Deepseek\keys\linksi-enhanced-release.jks` with
-> credentials recorded in `E:\Deepseek\keys\KEYSTORE_CREDENTIALS.txt` (alias `linksi-enhanced`).
+> A keystore exists in this environment at `E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks` with
+> credentials recorded in `E:\Deepseek\Linksi\keys\KEYSTORE_CREDENTIALS.txt` (alias `linksi-enhanced`).
 > Those files are **outside this git worktree and must never be committed**. Treat the password as
 > a secret; it is deliberately not reproduced in this document.
 
 ### 3.2 Building the signed release *(verified command shape)*
 
 ```powershell
-$env:KEYSTORE_PATH     = 'E:\Deepseek\keys\linksi-enhanced-release.jks'
+$env:KEYSTORE_PATH     = 'E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks'
 $env:KEYSTORE_PASSWORD = '<store password>'
 $env:KEY_ALIAS         = 'linksi-enhanced'
 $env:KEY_PASSWORD      = '<key password>'
@@ -235,7 +235,7 @@ Also record the signing certificate fingerprint, which is what an in-place updat
 
 ```powershell
 & "$env:JAVA_HOME\bin\keytool.exe" -list -v `
-  -keystore E:\Deepseek\keys\linksi-enhanced-release.jks -alias linski-enhanced |
+  -keystore E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks -alias linski-enhanced |
   Select-String 'SHA256:'
 ```
 
@@ -264,7 +264,7 @@ recorded SHA256 matches the distributed filename:
 
 ```powershell
 $version = '3.2.0-enhanced.1'
-$out = "E:\Deepseek\releases\LinksiEnhanced_${version}_universal.apk"
+$out = "E:\Deepseek\Linksi\artifacts\releases\LinksiEnhanced_${version}_universal.apk"
 New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
 Copy-Item .\app\build\outputs\apk\release\app-release.apk $out -Force
 Get-FileHash $out -Algorithm SHA256
@@ -343,16 +343,16 @@ rediscover them.
 `cmdline-tools`' bundled HTTP stack **cannot reach `dl.google.com`** in this sandbox, and the
 Windows schannel credential path used by `curl` / `Invoke-WebRequest` fails with
 `SEC_E_NO_CREDENTIALS`. The SDK was therefore populated manually by
-`E:\Deepseek\setup-android-sdk.ps1` and `E:\Deepseek\install-sdk-packages.ps1`, which:
+`E:\Deepseek\Linksi\scripts\setup-android-sdk.ps1` and `E:\Deepseek\Linksi\scripts\install-sdk-packages.ps1`, which:
 
 1. download Google's repository manifests (`repository2-3.xml`, `repository2-1.xml`) and the
-   command-line tools with a small **JDK `HttpClient`** helper (`E:\Deepseek\.probe\Download.java`),
+   command-line tools with a small **JDK `HttpClient`** helper (`E:\Deepseek\Linksi\local\.probe\Download.java`),
    which does work;
 2. resolve each required package (`platforms;android-34/35/36`,
    `build-tools;34.0.0/35.0.0/36.0.0`, `platform-tools`) out of those manifests and download its
    archive directly;
-3. unzip it into `E:\Deepseek\android-sdk\<component>`;
-4. write the standard licence-hash files into `E:\Deepseek\android-sdk\licenses\`
+3. unzip it into `E:\Deepseek\Linksi\toolchain\android-sdk\<component>`;
+4. write the standard licence-hash files into `E:\Deepseek\Linksi\toolchain\android-sdk\licenses\`
    (`android-sdk-license`, `android-sdk-preview-license`, `android-googletv-license`) so AGP accepts
    the SDK without an interactive `--licenses` run.
 
@@ -366,10 +366,10 @@ The session file sandbox denies writes outside the workspace, so Gradle's defaul
 (`%USERPROFILE%\.gradle`) is not writable. Always set:
 
 ```powershell
-$env:GRADLE_USER_HOME = 'E:\Deepseek\.gradle-home'
+$env:GRADLE_USER_HOME = 'E:\Deepseek\Linksi\local\.gradle-home'
 ```
 
-The repositories in this workspace already have populated Gradle homes: `E:\Deepseek\.gradle-home`,
+The repositories in this workspace already have populated Gradle homes: `E:\Deepseek\Linksi\local\.gradle-home`,
 `.gradle-home-main` and `.gradle-verify-home`. Without `GRADLE_USER_HOME` set, Gradle fails while
 creating its caches/daemon directories rather than during the build, which is misleading.
 

@@ -36,21 +36,27 @@ if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).
 $RepoRoot = (Resolve-Path $RepoRoot).Path
 $parent = Split-Path $RepoRoot -Parent
 
+# The project keeps its toolchain and caches beside the repository, under the Linksi umbrella folder.
+$local = Join-Path $parent 'local'
+
 if (-not $VerifyDir)      { $VerifyDir      = Join-Path $parent 'linksi-urlcleaner-verify' }
-if (-not $GradleUserHome) { $GradleUserHome = Join-Path $parent '.gradle-verify-home' }
+if (-not $GradleUserHome) { $GradleUserHome = Join-Path $local '.gradle-verify-home' }
 if (-not $JavaHome) {
-    if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
-        $JavaHome = $env:JAVA_HOME
-    } else {
-        # The JetBrains Runtime bundled with the JetBrains IDEs is a full JDK.
-        $JavaHome = 'C:\Program Files\JetBrains\PyCharm Community Edition 2024.2.4\jbr'
-    }
+    $candidates = @(
+        (Join-Path $parent 'toolchain\jdk-17'),
+        $env:JAVA_HOME,
+        # The JetBrains Runtime bundled with the JetBrains IDEs is also a full JDK.
+        'C:\Program Files\JetBrains\PyCharm Community Edition 2024.2.4\jbr'
+    )
+    $JavaHome = $candidates |
+        Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin\java.exe')) } |
+        Select-Object -First 1
 }
-if (-not (Test-Path (Join-Path $JavaHome 'bin\java.exe'))) {
-    throw "No JDK found at '$JavaHome'. Install a JDK 17+ and pass -JavaHome <path>."
+if (-not $JavaHome -or -not (Test-Path (Join-Path $JavaHome 'bin\java.exe'))) {
+    throw "No JDK found. Install a JDK 17+ and pass -JavaHome <path>."
 }
 
-$tmpDir = Join-Path $parent '.tmp'
+$tmpDir = Join-Path $local '.tmp'
 New-Item -ItemType Directory -Force -Path $VerifyDir, $GradleUserHome, $tmpDir | Out-Null
 
 # ── the throwaway JVM project ─────────────────────────────────────────────────

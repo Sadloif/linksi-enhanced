@@ -11,13 +11,13 @@
     and is passed to Gradle through environment variables. It is never printed and never echoed.
 
 .PARAMETER KeystorePath
-    The .jks file. Defaults to E:\Deepseek\keys\linksi-enhanced-release.jks.
+    The .jks file. Defaults to E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks.
 
 .PARAMETER CredentialsFile
     File produced alongside the keystore, containing the alias and passwords.
 
 .PARAMETER OutDir
-    Where the APK and checksum are archived. Defaults to E:\Deepseek\release-artifacts.
+    Where the APK and checksum are archived. Defaults to E:\Deepseek\Linksi\artifacts\releases.
 
 .PARAMETER SkipChecks
     Skip tests and lint (use only for a quick rebuild; a release should not be produced this way).
@@ -28,9 +28,9 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot,
-    [string]$KeystorePath = 'E:\Deepseek\keys\linksi-enhanced-release.jks',
-    [string]$CredentialsFile = 'E:\Deepseek\keys\KEYSTORE_CREDENTIALS.txt',
-    [string]$OutDir = 'E:\Deepseek\release-artifacts',
+    [string]$KeystorePath = 'E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks',
+    [string]$CredentialsFile = 'E:\Deepseek\Linksi\keys\KEYSTORE_CREDENTIALS.txt',
+    [string]$OutDir = 'E:\Deepseek\Linksi\artifacts\releases',
     [switch]$SkipChecks
 )
 
@@ -69,8 +69,8 @@ Write-Host "  uncommitted : $dirty"
 Write-Host ""
 
 # ── environment ───────────────────────────────────────────────────────────────
-$env:JAVA_HOME = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'E:\Deepseek\jdk-17' }
-if (-not $env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME = 'E:\Deepseek\.gradle-home-main' }
+$env:JAVA_HOME = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'E:\Deepseek\Linksi\toolchain\jdk-17' }
+if (-not $env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME = 'E:\Deepseek\Linksi\local\.gradle-home-main' }
 if (-not $env:GRADLE_OPTS) { $env:GRADLE_OPTS = "-Djava.io.tmpdir=$((Split-Path $RepoRoot -Parent))\.tmp" }
 if (-not $env:DEBUG_KEYSTORE_PATH) { $env:DEBUG_KEYSTORE_PATH = Join-Path (Split-Path $KeystorePath -Parent) 'debug.keystore' }
 $env:KEYSTORE_PATH = $KeystorePath

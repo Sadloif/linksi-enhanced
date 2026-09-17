@@ -4,7 +4,7 @@ Mandatory full code review of the Linksi baseline (specification sections 6 and 
 
 - **Review date**: 2026-10-09
 - **Reviewed revision**: `0f4af65eb4fd87fcc77b79717071f975f7ccd122` — *"Fix: Fixed Import from browser"*
-- **Repository**: `https://github.com/AsukaAzure/Linksi` (public), cloned to `E:\Deepseek\Linksi`
+- **Repository**: `https://github.com/AsukaAzure/Linksi` (public), cloned to `E:\\Deepseek\\Linksi\\repo`
 - **Branch**: `master` (default branch), 115 commits, tags `v1.0` … `v3.1.1`
 - **Method**: static reading of every source file, plus `git` history archaeology. No Android SDK
   and no device were available, so **nothing in this review is runtime-verified**. Every claim
@@ -624,7 +624,7 @@ A release baseline cannot be built at all without the original signing key (see 
 
 Because the URL handling code is pure JVM logic, the phase-1 URL cleaner and URL normalizer were
 compiled and executed for real on JBR 21 using a standalone Gradle JVM project
-(`E:\Deepseek\linksi-urlcleaner-verify`, driven by `E:\Deepseek\run-urlcleaner-tests.ps1`):
+(`E:\Deepseek\linksi-urlcleaner-verify`, driven by `E:\Deepseek\Linksi\repo\tools\run-urlcleaner-tests.ps1`):
 **82 tests, 0 failures**. See `TEST_REPORT.md`. This proves the new logic and the `normalizeUrl`
 fix; it does **not** prove that the Android app still assembles.
 

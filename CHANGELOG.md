@@ -148,7 +148,7 @@ Everything below is private fork work **on top of** upstream 3.1.1.
   is read from the credentials file, passed via environment variables only, never printed, and cleared
   before the script exits.
 - **Private release signing key** — 4096-bit RSA, generated **outside** the repository
-  (`E:\Deepseek\keys\linksi-enhanced-release.jks`, SHA256 `1E:7F:FE:B4:...:96`, valid to 2054-02-02)
+  (`E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks`, SHA256 `1E:7F:FE:B4:...:96`, valid to 2054-02-02)
   with credentials in a sibling file. It must be backed up: losing it means no future build can be
   installed as an update, and it is never committed.
 
