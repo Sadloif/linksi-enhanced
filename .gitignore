@@ -5,6 +5,10 @@ out/
 build/
 app/release/
 
+# Local build/verification logs
+connected-tests.log
+build-release.log
+
 .gradle/
 
 # Kotlin compiler session and error logs produced by the build

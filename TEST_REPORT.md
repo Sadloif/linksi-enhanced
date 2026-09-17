@@ -319,3 +319,100 @@ or emulator**, so nothing below has been verified: app launch, every core-Linksi
 the share receiver, Android 16/ColorOS behaviour, edge-to-edge and predictive back, rotations,
 process death, update-over-install, and every downloader/accessibility/bubble behaviour. The
 minimum release gate (testing plan section 100) is **not** met, and no APK may be released as stable.
+
+---
+
+## 10. Addendum 2 — on-device verification on Android 16
+
+Section 9.5 said there was no device. There is now: an **Android 16 (API 36) x86_64 emulator**
+(`sdk_gphone64_x86_64`) running on the Windows Hypervisor Platform, driven with `adb`. Section 9.5's
+"nothing below has been verified" is superseded by this section for the items listed here; the rest
+of that list still stands.
+
+### 10.1 Instrumented tests — 4 tests, 0 failures
+
+`app/src/androidTest/java/com/linksi/app/CoreFlowsSmokeTest.kt`, run against the real `MainActivity`,
+the real Hilt graph and the real Room database:
+
+```text
+com.linksi.app.CoreFlowsSmokeTest:....
+Time: 15.741
+
+OK (4 tests)
+```
+
+| Test | What it proves |
+|---|---|
+| `appLaunchesAndShowsTheHomeScreen` | the app starts on Android 16 without crashing |
+| `savingATrackingHeavyUrlStoresTheCleanedForm` | `utm_*` removed, `?id=42` kept, all the way to the database |
+| `theSpecificationFacebookReelExampleIsCleanedOnSave` | acceptance criterion 70.12, on a device |
+| `mixedCaseInPathAndQueryIsPreservedOnSave` | acceptance criterion 70.13, on a device |
+
+These assertions read the database through a second connection rather than trusting the UI, so they
+fail if the save path silently stores something else.
+
+### 10.2 Manual device verification
+
+| Verified | Evidence |
+|---|---|
+| App installs and launches | `topResumedActivity=com.linksi.app.debug/com.linksi.app.MainActivity`, pid alive, no `FATAL EXCEPTION` |
+| Onboarding renders | screenshot `linksi-home.png` ("Save Any Link", Skip/Next pager) |
+| Share receiver works | `SEND`/`text/plain` intent → `mCurrentFocus=…ShareReceiverActivity`; screenshot `share-receiver.png` |
+| Metadata fetching works on device | the share sheet showed live Facebook engagement data for the reel ("1.4M views · 55K reactions") |
+| Shared link is stored **cleaned** | after tapping Save Link in the share sheet, the database row was `https://www.facebook.com/reel/1710485373378939` |
+| Accessibility service binds | `dumpsys accessibility`: `Service[label=Linksi link detection (optional), eventTypes=[TYPE_VIEW_CLICKED, TYPE_WINDOW_STATE_CHANGED, TYPE_WINDOW_CONTENT_CHANGED, TYPE_VIEW_TEXT_SELECTION_CHANGED], notificationTimeout=100, requestA11yBtn=false]`, and the system started the service process |
+| No crashes anywhere | `adb logcat -b crash` contains nothing for `linksi` across the whole session |
+
+Final database contents after all of the above (pulled with `run-as` and queried with sqlite3):
+
+```text
+stored links: 3
+  id=1 url='https://www.facebook.com/reel/1710485373378939'   (saved through the share sheet)
+  id=2 url='https://example.com/article?id=42'                (tracking parameters removed)
+  id=3 url='https://example.com/File?id=AbC123'               (case preserved)
+
+CLEANED URL STORED: True
+RAW TRACKING URL STORED (should be False): False
+```
+
+Evidence files: `E:\Deepseek\emulator-evidence\` (`linksi-home.png`, `share-receiver.png`,
+`linksi_db`, `logcat.txt`, `share-ui.xml`).
+
+### 10.3 A caveat about `connectedDebugAndroidTest`
+
+`:app:connectedDebugAndroidTest` fails in this environment with
+`java.util.concurrent.ExecutionException: java.io.IOException: The system cannot find the path
+specified` — a host-side path problem in AGP's test-result handling, not a test failure.
+`gradle.properties` disables the Unified Test Platform to no avail. The same APKs and the same tests
+pass when driven directly:
+
+```powershell
+gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest
+adb install -r -t app\build\outputs\apk\debug\app-debug.apk
+adb install -r -t app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk
+adb shell am instrument -w -e class com.linksi.app.CoreFlowsSmokeTest `
+    com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Expect the same on a normal developer machine to work through the Gradle task; the sandbox is the
+variable here.
+
+### 10.4 What is *still* untested (corrected list)
+
+The emulator closes the gap on app launch, core save/share flow, URL cleaning on device and
+accessibility-service binding. The following remain **unverified** and must not be claimed:
+
+1. **Any physical device**, including the intended OPPO/ColorOS target, and every manufacturer
+   listed in the testing plan.
+2. **Android 8 through 15.** Only API 36 has been exercised.
+3. **The bubble overlay on hardware.** Its geometry and timing are unit tested; the overlay window,
+   drag/snap and the Android 14+/15 background-activity launch are not.
+4. **A real download.** The engine, sinks and extractor are unit tested and compile, but no file has
+   been downloaded on a device, so MediaStore output and the download notifications are unverified.
+5. **The quick action panel** as rendered UI (not mounted on a screen yet).
+6. **The server resolver** against a live server.
+7. **Reminders/notifications end to end** — known broken upstream (see CODE_REVIEW.md finding 4).
+8. **Predictive back, edge-to-edge, rotation, process death, update-over-install, low storage and
+   network interruption.**
+9. **The minimum release gate (testing plan §100)** — device coverage of the core regressions is
+   still incomplete, so the release APK is a **candidate for private use, not a stable release**.

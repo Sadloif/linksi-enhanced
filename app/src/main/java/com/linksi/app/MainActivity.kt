@@ -351,10 +351,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Compares release versions, tolerating the private suffix this fork uses
+     * ("3.1.1-enhanced.1"). Only the leading dotted numeric portion is compared, otherwise the
+     * "1-enhanced" segment parses as 0 and upstream 3.1.1 looks newer than a build of 3.1.1, which
+     * is exactly what produced a spurious "Update Available" prompt on the release APK.
+     */
     private fun isNewerVersion(latest: String, current: String): Boolean {
         return try {
-            val latestParts = latest.split(".").map { it.toIntOrNull() ?: 0 }
-            val currentParts = current.split(".").map { it.toIntOrNull() ?: 0 }
+            val latestParts = numericVersionParts(latest)
+            val currentParts = numericVersionParts(current)
             for (i in 0 until maxOf(latestParts.size, currentParts.size)) {
                 val l = latestParts.getOrElse(i) { 0 }
                 val c = currentParts.getOrElse(i) { 0 }
@@ -366,4 +372,11 @@ class MainActivity : AppCompatActivity() {
             false
         }
     }
+
+    /** The leading `major.minor.patch` numbers of a version string, ignoring any suffix. */
+    private fun numericVersionParts(version: String): List<Int> =
+        version.trim()
+            .takeWhile { it.isDigit() || it == '.' }
+            .split('.')
+            .mapNotNull { it.toIntOrNull() }
 }

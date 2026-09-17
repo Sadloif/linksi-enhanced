@@ -16,8 +16,43 @@ with **0 errors**, and a signed release APK is produced from `enhanced/integrati
 
 ## [Unreleased]
 
-Everything below is private fork work **on top of** upstream 3.1.1. No version number has been
-assigned yet; the first enhanced release must be `versionCode` ≥ 21.
+Nothing yet. Everything below shipped in `3.1.1-enhanced.1`.
+
+---
+
+## [3.1.1-enhanced.1] - 2026-10-09
+
+First private enhanced release. Private use only: the licence question in
+[LICENSE_REVIEW.md](LICENSE_REVIEW.md) still blocks redistribution.
+
+**Release artifact**
+
+```text
+apk        : LinksiEnhanced_3.1.1-enhanced.1_universal.apk
+size       : 5,464,184 bytes (5.21 MB)
+sha256     : 415994017A84CD296C6CB562B2DF95663ECC76C6D0171F0C2197BC0FCF7DA274
+versionCode: 21
+versionName: 3.1.1-enhanced.1
+applicationId: com.linksi.app   (unchanged, so a future build can update it in place)
+signed with: CN=Linksi Enhanced (private), 4096-bit RSA, APK Signature Scheme v2
+```
+
+**Verified on an Android 16 (API 36) x86_64 emulator**: the release APK installs, launches (no
+crash, `MainActivity` resumed) and renders; the debug build passes 4 on-device flow tests and its
+database contains only cleaned URLs. Full evidence in [TEST_REPORT.md](TEST_REPORT.md) §10.
+
+### Fixed
+
+- **A spurious "Update Available" prompt in the private build.** The release APK told the user that
+  upstream `v3.1.1` was newer than the installed `v3.1.1-enhanced.1`. `MainActivity.isNewerVersion`
+  split the version on `.` and mapped `1-enhanced` to `0`, so the installed build looked *older*
+  than the release it was built from. The identical check in `SettingsViewModel` used `toInt()` and
+  threw, so the two screens silently disagreed. Both now compare only the leading numeric portion.
+  Found by installing and running the release APK, not by any test.
+
+### Added
+
+Everything below is private fork work **on top of** upstream 3.1.1.
 
 ### Added
 
