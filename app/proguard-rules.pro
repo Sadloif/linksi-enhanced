@@ -20,4 +20,16 @@
 # Coil
 -keep class coil.** { *; }
 
+# youtubedl-android 0.17.3 (GPL-3.0, see app/build.gradle) and what it drags in.
+#
+# The library reflects over Jackson's mapper types and constructs an ObjectMapper in its static
+# initialiser, so those classes have to survive shrinking even though this app reads
+# `--dump-single-json` and never calls `getInfo`. Without these keeps a release build fails at the
+# first `YoutubeDL.getInstance()` call, which is a runtime crash rather than a build error.
+-keep class com.yausername.youtubedl_android.** { *; }
+-keep class com.yausername.youtubedl_common.** { *; }
+-keep class com.fasterxml.jackson.** { *; }
+-keep class org.apache.commons.io.** { *; }
+-dontwarn com.fasterxml.jackson.**
+-dontwarn org.apache.commons.io.**
 -dontwarn org.jspecify.annotations.NullMarked

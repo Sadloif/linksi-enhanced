@@ -11,6 +11,8 @@ import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaSource
 import com.linksi.app.enhanced.media.direct.DirectFileExtractor
+import com.linksi.app.enhanced.media.ytdlp.YtDlpDownloadRequest
+import com.linksi.app.enhanced.media.ytdlp.YtDlpDownloader
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -19,6 +21,13 @@ import kotlinx.coroutines.withContext
 
 /**
  * Downloads exactly one [DownloadRequest] (specification sections 22 and 23).
+ *
+ * There are two paths, and the direct one is still the common one:
+ *  - a URL that *is* a file, and a format that is already complete, go through
+ *    [DirectFileDownloader] over OkHttp exactly as before;
+ *  - a format whose video and audio arrive separately, and a URL that is a page rather than a file,
+ *    go through [YtDlpDownloader]. Both paths publish through the same [DownloadSink], so the
+ *    finished file reaches the user's Downloads collection identically either way.
  *
  * Design notes, all of them consequences of the specification:
  *  - One work item per download, so a failure is isolated to that download and nothing can throw
@@ -39,6 +48,7 @@ class DownloadWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val extractor: DirectFileExtractor,
     private val downloader: DirectFileDownloader,
+    private val ytDlp: YtDlpDownloader,
     private val sinks: DownloadSinkFactory,
     private val notifications: DownloadNotifications
 ) : CoroutineWorker(appContext, params) {
@@ -77,22 +87,19 @@ class DownloadWorker @AssistedInject constructor(
     }
 
     private suspend fun run(request: DownloadRequest, title: String): Result {
-        if (request.requiresMuxing) {
-            // Merging separate video and audio streams needs the optional media engine, which is
-            // not bundled. Saying so is better than downloading half a file.
-            return fail(
-                request,
-                title,
-                MediaError.ENGINE_UNAVAILABLE,
-                "separate video and audio streams need the optional muxing engine"
-            )
+        // A request that names a site-specific format, or that needs two streams merged, cannot be
+        // served by an HTTP GET at all, so it never pays for the direct probe first.
+        if (request.needsSiteEngine) {
+            return downloadWithYtDlp(request, title)
         }
 
         val info = when (val probe = extractor.analyze(request.url, request.source)) {
             is MediaExtractionResult.Success -> probe.info
 
             is MediaExtractionResult.Unsupported ->
-                return fail(request, title, MediaError.UNSUPPORTED_SITE, probe.url)
+                // The URL is a page, not a file - which is exactly what the site engine is for.
+                // Handing it over turns a certain failure into a possible download.
+                return downloadWithYtDlp(request, title)
 
             is MediaExtractionResult.Skipped ->
                 return fail(request, title, MediaError.ENGINE_UNAVAILABLE, probe.reason)
@@ -130,19 +137,7 @@ class DownloadWorker @AssistedInject constructor(
         }
 
         return when (result) {
-            is DirectDownloadResult.Completed -> {
-                notifications.notifyComplete(request.id, result.displayName, result.location)
-                Result.success(
-                    DownloadWorkKeys.success(
-                        location = result.location,
-                        bytes = result.bytes,
-                        mimeType = result.mimeType,
-                        displayName = result.displayName,
-                        request = request
-                    )
-                )
-            }
-
+            is DirectDownloadResult.Completed -> completed(request, result)
             is DirectDownloadResult.Failed -> retryOrFail(
                 request = request,
                 title = title,
@@ -151,6 +146,69 @@ class DownloadWorker @AssistedInject constructor(
                 transient = result.transient
             )
         }
+    }
+
+    /**
+     * Downloads through the bundled site engine (specification sections 19 and 23).
+     *
+     * Only two things differ from the direct path: the bytes come from yt-dlp, which can fetch a
+     * separate audio stream and merge it with FFmpeg, and the file's container is not known until
+     * yt-dlp has chosen it, so the name and MIME type are settled during the copy into the sink
+     * rather than before the download starts. Publishing, progress, the notification and the work
+     * output are identical, because [YtDlpDownloader] commits through the very same [DownloadSink].
+     */
+    private suspend fun downloadWithYtDlp(request: DownloadRequest, title: String): Result {
+        val sink = sinks.forDestination(request.destination)
+            ?: return fail(
+                request,
+                title,
+                MediaError.NO_STORAGE,
+                sinks.unavailableDetail(request.destination)
+            )
+
+        // The size is unknown until the engine reports one, so the notification starts as an
+        // indeterminate spinner rather than as a fake percentage.
+        publish(request.id, title, DownloadState.Downloading(0L, null, null))
+
+        val result = ytDlp.download(
+            request = YtDlpDownloadRequest(
+                url = request.url,
+                formatId = request.formatId,
+                requiresMuxing = request.requiresMuxing,
+                preferredName = request.suggestedFileName?.takeIf { it.isNotBlank() }
+            ),
+            sink = sink
+        ) { state ->
+            publish(request.id, title, state)
+        }
+
+        return when (result) {
+            is DirectDownloadResult.Completed -> completed(request, result)
+            is DirectDownloadResult.Failed -> retryOrFail(
+                request = request,
+                title = title,
+                error = result.error,
+                detail = result.detail,
+                transient = result.transient
+            )
+        }
+    }
+
+    /** The shared tail of both paths: a finished file becomes a succeeded work item. */
+    private suspend fun completed(
+        request: DownloadRequest,
+        result: DirectDownloadResult.Completed
+    ): Result {
+        notifications.notifyComplete(request.id, result.displayName, result.location)
+        return Result.success(
+            DownloadWorkKeys.success(
+                location = result.location,
+                bytes = result.bytes,
+                mimeType = result.mimeType,
+                displayName = result.displayName,
+                request = request
+            )
+        )
     }
 
     /** Publishes progress to WorkManager *and* to the notification, in that order. */
@@ -219,6 +277,20 @@ class DownloadWorker @AssistedInject constructor(
         const val MAX_RETRIES = 3
     }
 }
+
+/**
+ * True when only the site-specific engine can serve this request.
+ *
+ * Two cases, and both are ones a plain HTTP GET is guaranteed to get wrong:
+ *  - [DownloadRequest.requiresMuxing]: the format's video and audio are separate streams, and only
+ *    FFmpeg can join them;
+ *  - [DownloadRequest.formatId] is set to something other than
+ *    [DirectFileExtractor.FORMAT_ID]: the direct-file probe's only format id is its own marker, so
+ *    any other id was produced by a site-specific extraction and means nothing to OkHttp.
+ */
+private val DownloadRequest.needsSiteEngine: Boolean
+    get() = requiresMuxing ||
+        (formatId != null && formatId != DirectFileExtractor.FORMAT_ID)
 
 /**
  * Naming and tagging rules for download work, deliberately free of WorkManager types so they are
