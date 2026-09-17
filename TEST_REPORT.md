@@ -560,3 +560,88 @@ release APK was 5.21 MB. `versionCode` is now 22.
   only for "returns a value rather than throwing" — none was confirmed to extract real formats,
   because the emulator's IP is blocked by most of them. A physical device on a residential connection
   is required for that, and is the single most valuable next test.
+
+---
+
+## 13. Addendum 5 — first run on physical hardware (POCO X3 Pro)
+
+The owner attached a **POCO X3 Pro** (`M2102J20SG`, codename *vayu*): **Android 13 (API 33), MIUI 14,
+arm64-v8a, 4 KB pages, 197 GB free**. This is the first real-device execution of the project, and it
+answers questions the x86_64 emulator never could.
+
+### 13.1 Install
+
+`INSTALL_FAILED_USER_RESTRICTED: Install canceled by user` came from **MIUI's package verifier**, not
+from the APK or the signing key. Enabling *Developer options → Install via USB* alone was **not**
+enough; what fixed it was:
+
+```text
+adb shell settings put global package_verifier_user_consent -1
+adb shell settings put global package_verifier_enable 0
+adb shell settings put secure install_non_market_apps 1
+```
+
+After that the **arm64 release APK installed and launched**: `MainActivity` focused, process alive, no
+`FATAL EXCEPTION`, no `UnsatisfiedLinkError`. (The one scary-looking line,
+`FeatureFlagsImplExport: NoClassDefFoundError ... boot class loader`, is an optional-class probe and is
+benign.)
+
+### 13.2 The arm64 native payload works — a genuine gap closed
+
+`YtDlpMediaSmokeTest` on the phone:
+
+```text
+I YtDlpSmokeTest: unpacked: python=true ffmpeg=true yt-dlp=2985408 bytes
+I YtDlpSmokeTest: native payload for arm64-v8a: [libffmpeg.so, libffmpeg.zip.so, libpython.so, libpython.zip.so]
+I YtDlpSmokeTest: candidate OK: https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd -> bbb_30fps (11 formats)
+```
+
+**CPython, FFmpeg and yt-dlp all unpack and execute on real arm64 hardware.** Until now every
+execution had been x86_64 on the emulator, so the payload shipped in the arm64 release APK had never
+run anywhere. It does now, and extraction produces the same 11 correctly-flagged formats
+(2160p down to 180p with `mux=true`, then audio-only with `mux=false`).
+
+### 13.3 The five sites: reached and classified, but not yet *extracted*
+
+On a **residential IP** every extractor was reached. The results are real, and two of them are real
+blocks rather than artefacts of the test's fake IDs:
+
+| Probe | Classified as | What yt-dlp actually said |
+|---|---|---|
+| Instagram | `LOGIN_REQUIRED` | *"Requested content is not available, rate-limit reached or login required. Use --cookies…"* |
+| Pinterest | `EXTRACTOR_FAILED` | *"Unable to download JSON metadata: HTTP Error 403: Forbidden"* — Pinterest blocks yt-dlp |
+| TikTok | `EXTRACTOR_FAILED` | *"Video not available, status code 100002"* (fake id) |
+| Facebook | `MEDIA_GONE` | *HTTP Error 404* (fake id) |
+| Reddit | `EXTRACTOR_FAILED` | *"Failed to parse JSON"* (fake subreddit) |
+
+**Read this carefully: it does not prove extraction works for real content.** The test deliberately
+uses *not-a-real* identifiers so it can run unattended, so these lines prove the extractors are
+reached, that failures are converted into user-facing reasons, and that nothing throws. Two
+conclusions do follow: **Instagram now requires cookies/login even for public posts**, and
+**Pinterest returns 403 to yt-dlp**. Neither is fixable by configuration alone.
+
+**Next step:** repeat the probes with a handful of *real, public* URLs per site, which distinguishes
+"blocked" from "our wiring is wrong".
+
+### 13.4 The stalled merge download is NOT an emulator artefact
+
+The same failure reproduces on the phone over a good residential connection:
+
+```text
+I YtDlpSmokeTest: downloading video-only format bbb_30fps_320x180_200k at 180p to force a merge
+W YtDlpSmokeTest: the merged download ... did not finish within 120s; treating the merge path as unverified on this device
+E TestRunner: assumption failed: aVideoOnlyFormatIsMergedAndPublishedWhereTheUserCanFindIt
+```
+
+That is an important negative result: **open item 1 is a real defect, not a slow emulator.** On the
+emulator the evidence was a downloaded video-only stream plus a stalled audio `.part`; the same shape
+should be checked on the phone (`cache/ytdlp/work-*/`). Since the network is now demonstrably good,
+the next suspects are the yt-dlp invocation itself — the format/merge selector, the child process's
+stdout/stderr handling (a full pipe buffer deadlocks a chatty child), or `destroyProcessById`'s
+`pstree`/`grep -oP` dependency on a ROM that may lack them.
+
+### 13.5 A caveat about reading these test results
+
+`am instrument` printed **`OK (5 tests)`** for both the emulator and the phone run, while one test had
+actually been *skipped* by a failed JUnit assumption (`run finished: 5 tests, 0 failed, 0 ignored`).
+**The summary line is not the result.** Read the test's own logcat lines.
