@@ -407,12 +407,65 @@ accessibility-service binding. The following remain **unverified** and must not 
 2. **Android 8 through 15.** Only API 36 has been exercised.
 3. **The bubble overlay on hardware.** Its geometry and timing are unit tested; the overlay window,
    drag/snap and the Android 14+/15 background-activity launch are not.
-4. **A real download.** The engine, sinks and extractor are unit tested and compile, but no file has
-   been downloaded on a device, so MediaStore output and the download notifications are unverified.
-5. **The quick action panel** as rendered UI (not mounted on a screen yet).
+4. ~~**A real download.**~~ **Now verified** — see §10.5. MediaStore output and the download
+   notifications: MediaStore is verified, the notification rendering is not.
+5. ~~**The quick action panel** as rendered UI (not mounted on a screen yet).~~ **Now mounted and
+   screenshot-verified** — see §10.5. The panel's live *in-progress* status card is still only
+   unit-tested (the test file completes before a screenshot can be taken).
 6. **The server resolver** against a live server.
 7. **Reminders/notifications end to end** — known broken upstream (see CODE_REVIEW.md finding 4).
 8. **Predictive back, edge-to-edge, rotation, process death, update-over-install, low storage and
    network interruption.**
 9. **The minimum release gate (testing plan §100)** — device coverage of the core regressions is
    still incomplete, so the release APK is a **candidate for private use, not a stable release**.
+
+---
+
+## 11. Addendum 3 — the downloader is reachable and downloads for real
+
+Everything the specification asks for in modules 5 to 7 (universal downloader, direct file
+downloader, quick action panel) is now wired to a user-facing entry point and has been exercised on
+the Android 16 emulator.
+
+### 11.1 What is reachable now
+
+| Surface | Path |
+|---|---|
+| Link options sheet | a "Download / quick actions" row opens the panel for that link — no bubble, no accessibility service required |
+| Floating bubble / shared link | `QuickPanelActivity` renders the real `QuickActionPanel`; when opened from the link sheet the URL arrives as an intent extra and the clipboard is **not** read |
+| Settings → Downloads | a downloads screen listing In progress / Finished from `DownloadEngine.observeAll()`, with cancel, retry and dismiss |
+
+The download path is `ExtractorRegistry.analyse` → `DownloadEngine.enqueue` → WorkManager with a
+`dataSync` foreground service → `MediaStore.Downloads`. Progress, size and speed come only from
+`DownloadFormatting`; when the server does not report a total the UI shows an indeterminate bar
+rather than inventing a percentage.
+
+### 11.2 Device evidence
+
+```text
+$ gradlew :app:assembleDebug :app:testDebugUnitTest
+BUILD SUCCESSFUL — 631 tests, 0 failures, 0 errors
+
+$ adb shell am instrument -w -e class com.linksi.app.DownloadEngineInstrumentedTest \
+      com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
+OK (1 test)   INSTRUMENTATION_STATUS_CODE: 0
+```
+
+`DownloadEngineInstrumentedTest` performs a **real** download through the production engine and then
+asserts: the state reaches `Completed`, the file is readable, the byte count matches the reported
+size, the location is a `content://` URI, and the published MediaStore row has `is_pending=0`. The
+downloaded artifact was a 13,504-byte PNG that landed in `MediaStore.Downloads`. It skips (rather
+than fails) only when the failure is a network-class error.
+
+Screenshots in `E:\Deepseek\Linksi\evidence\`: `download-panel.png` (the live panel showing
+"Original quality / PNG · 13.2 KB" and a DOWNLOAD row), `download-panel-article.png` (an article URL
+correctly shows **no** download section), `link-options-sheet.png` (the entry row),
+`downloads-screen.png` (the downloads list).
+
+### 11.3 A caution learned the hard way
+
+Running two instrumented test suites against one emulator **at the same time** produces
+`INSTRUMENTATION_RESULT: shortMsg=Process crashed.` — each run reinstalls `com.linksi.app.debug`
+under the other, so the test APK and the app APK stop matching. That is a harness artefact, not an
+app defect, but it is indistinguishable from a real crash unless the logcat is read carefully.
+**Serialise device test runs**: one suite at a time, reinstall before each.

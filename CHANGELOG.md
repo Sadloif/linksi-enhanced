@@ -16,7 +16,43 @@ with **0 errors**, and a signed release APK is produced from `enhanced/integrati
 
 ## [Unreleased]
 
-Nothing yet. Everything below shipped in `3.1.1-enhanced.1`.
+Work after the `3.1.1-enhanced.1` release. Not yet released as an APK.
+
+### Added
+
+- **The downloader is reachable from the UI.** A "Download / quick actions" row in the link options
+  sheet opens the quick action panel for that link, so downloading no longer requires the floating
+  bubble or the accessibility service. The panel's DOWNLOAD action runs
+  `ExtractorRegistry.analyse` → `DownloadEngine.enqueue`, and shows progress, cancel, retry and the
+  `error_download_*` messages in place.
+- **A downloads screen** (Settings → Downloads): In progress / Finished sections from
+  `DownloadEngine.observeAll()`, with cancel, retry and dismiss. Every number comes from
+  `DownloadFormatting`, so a download whose total size is unknown shows an indeterminate bar rather
+  than a fabricated percentage.
+- **`DownloadEngineInstrumentedTest`** — a real download on a device through the production engine,
+  asserting the state reaches `Completed`, the bytes are readable and match the reported size, and
+  the published MediaStore row has `is_pending=0`.
+- **Site-specific extraction via yt-dlp**: `YtDlpExtractor`, `YtDlpInfoMapper`, `YtDlpRuntime`,
+  `YtDlpDownloader` and `YtDlpProgressParser`, plus ABI splits so a per-device APK is not several
+  times the size of a universal one.
+
+### Changed
+
+- **The project moved into a single `E:\Deepseek\Linksi` umbrella folder**: `repo\` (the checkout),
+  `toolchain\`, `local\`, `keys\`, `artifacts\`, `evidence\`, `research\`, `scripts\` and
+  `worktrees\`. Every hardcoded path in the documentation and helper scripts was rewritten, the
+  merged worktrees were removed, and the build was re-verified afterwards.
+- **`tools/build-release.ps1`** now derives every path from the umbrella folder, runs the checks and
+  `assembleRelease` as **separate** Gradle invocations (in one invocation lint's debug analysis
+  reaches for release-variant KSP output that does not exist yet and crashes), and streams output to
+  a log instead of buffering it.
+
+### Fixed
+
+- `java.io.tmpdir is set to a directory that doesn't exist` when the release script ran after the
+  relocation — the temp directory is now derived and created.
+- The release script reported a **successful** build as failed, because its Gradle helper leaked
+  `Tee-Object` output into its own return value and the exit code then compared as an array.
 
 ---
 
