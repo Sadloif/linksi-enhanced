@@ -22,10 +22,10 @@ Test report for the Linksi Enhanced private build (specification section 44, tes
 | `minSdk` | `26` |
 | `compileSdk` / `targetSdk` | `34` / `34` |
 | Supported ABI | Universal (no native libraries in the baseline) |
-| APK filename | **not produced** |
-| APK SHA256 | **not produced** |
-| APK size | **not produced** |
-| Signing certificate fingerprint | **not produced** — the original signing key is unavailable and no private keystore has been created yet |
+| APK filename | Baseline: `Linksi_baseline_3.1.1_vc20_debug.apk` (debug variant of the untouched revision). Enhanced debug build: `app-debug.apk`. |
+| APK SHA256 | Baseline: `665F3EF1F952064C320F97BA746F7655E92AF79F57372C7457B1D61CC8D5CE1C`. Enhanced WIP debug build: `2A5FA472B932C66D661661B8A6B4DB5CCE91705F07B97A48199B3A84E47E68AD` (superseded by later commits). |
+| APK size | Baseline 24,141,629 bytes (23.02 MB); enhanced WIP debug 24,314,468 bytes (23.19 MB) |
+| Signing certificate fingerprint | Debug builds are signed with a local debug key. The private release keystore has since been generated: SHA256 `1E:7F:FE:B4:C5:F5:3C:3A:74:46:67:52:2A:8A:FB:E0:B6:97:B7:90:AA:9A:76:4B:6A:D6:CB:C6:20:FF:26:96`, valid to 2054-02-02. The *upstream* signing key remains unavailable, so in-place update of an installed official Linksi is still impossible. |
 
 Note: upstream tags `v3.1.0` and `v3.1.1` point at the *same* commit (`f6b33dea…`), and the
 reviewed commit is two commits past it with `versionName` already `3.1.1`.
@@ -241,3 +241,81 @@ if an error occurs, or if no tests ran at all.
 - **Next actions, in order**: install the Android SDK and produce/archive the baseline APK; run
   `gradlew :app:test` in the real module; then wire the cleaner into the save path (step 12) with a
   core regression pass (step 13).
+
+---
+
+## 9. Addendum — the build environment was completed later the same day
+
+Everything in sections 3 and 5 that says "blocked" or "not run" because of a **missing Android
+SDK** has since been resolved. This addendum supersedes those statements; the sections are left in
+place so the progression is honest.
+
+### 9.1 What made it work
+
+| Problem | Resolution |
+|---|---|
+| No Android SDK | Installed into the workspace at `E:\Deepseek\android-sdk`: `platforms;android-34/35/36`, `build-tools;34.0.0/35.0.0/36.0.0`, `platform-tools`. Google's own `sdkmanager` cannot reach `dl.google.com` in this sandbox (`IO exception while downloading manifest`), so the component zips were fetched directly from the repository manifest with the JDK's HTTP client — script: `E:\Deepseek\install-sdk-packages.ps1`. |
+| No `jlink` | The JetBrains Runtime bundled with PyCharm has no `jlink`, which AGP's `JdkImageTransform` requires. A real **Temurin JDK 17.0.20.1** was installed at `E:\Deepseek\jdk-17`. |
+| AGP wrote `~/.android/debug.keystore` outside the workspace | `app/build.gradle` now supports an opt-in `DEBUG_KEYSTORE_PATH` override; unset, behaviour is unchanged. |
+| Release signing key absent | A private 4096-bit RSA release keystore was generated **outside the repository** (`E:\Deepseek\keys\linksi-enhanced-release.jks`, credentials in `KEYSTORE_CREDENTIALS.txt`). It is gitignored by construction and must be backed up; losing it means no future in-place update. |
+
+### 9.2 Baseline APK archived (specification section 6.4)
+
+Built from the untouched baseline tag `baseline-linksi-original` (`0f4af65`) in a throwaway
+worktree, with only the debug signing override injected (the baseline revision predates it):
+
+```text
+file   : Linksi_baseline_3.1.1_vc20_debug.apk
+size   : 24,141,629 bytes (23.02 MB)
+sha256 : 665F3EF1F952064C320F97BA746F7655E92AF79F57372C7457B1D61CC8D5CE1C
+```
+
+Archived under `E:\Deepseek\baseline-artifacts\` with a `.sha256` sidecar. It is a **debug** build:
+no release build is possible from the baseline because the upstream signing key does not exist.
+
+### 9.3 The unit tests now run in the real Android module
+
+`gradlew :app:testDebugUnitTest` executes and passes. This closes the section 5 gap where the tests
+only ran in a side JVM harness:
+
+```text
+> Task :app:testDebugUnitTest
+BUILD SUCCESSFUL
+
+com.linksi.app.utils.UrlCleanerTest:                     tests=60  failures=0 errors=0
+com.linksi.app.utils.UrlNormalizerTest:                  tests=22  failures=0 errors=0
+com.linksi.app.enhanced.capability.RuntimeCapabilitiesTest: tests=40  failures=0 errors=0
+com.linksi.app.enhanced.media.MediaSourceDetectorTest:      tests=33  failures=0 errors=0
+com.linksi.app.enhanced.media.MediaFormatTest:              tests=36  failures=0 errors=0
+com.linksi.app.enhanced.media.ExtractorRegistryTest:        tests=20  failures=0 errors=0
+com.linksi.app.enhanced.download.DownloadModelsTest:        tests=29  failures=0 errors=0
+com.linksi.app.enhanced.download.DownloadEngineTest:        tests=7   failures=0 errors=0
+com.linksi.app.enhanced.download.FilenameSanitizerTest:     tests=48  failures=0 errors=0
+com.linksi.app.enhanced.detect.UrlTextExtractorTest:        tests=33  failures=0 errors=0
+com.linksi.app.enhanced.resolver.MediaResolverTest:         tests=20  failures=0 errors=0
+com.linksi.app.enhanced.EnhancedModulesTest:                tests=12  failures=0 errors=0
+TOTAL tests=360 failures=0 errors=0
+```
+
+The APK also assembles: `:app:assembleDebug` produces `app-debug.apk`, 23.19 MB.
+
+### 9.4 Build environment recipe (reproducible)
+
+```powershell
+$env:JAVA_HOME='E:\Deepseek\jdk-17'                      # a real JDK: AGP needs jlink
+$env:GRADLE_USER_HOME='E:\Deepseek\.gradle-home-main'    # keep caches inside the workspace
+$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\.tmp'
+$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\keys\debug.keystore'
+& .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain --no-watch-fs
+```
+
+Do **not** set `ANDROID_USER_HOME`/`ANDROID_SDK_HOME`: AGP then fails during plugin application
+(`Could not create provider for value source AndroidLocationsBuildService.AndroidDirectoryCreator`).
+
+### 9.5 What is still genuinely untested
+
+The gap list in section 5 stands, minus the build and unit-test items. There is still **no device
+or emulator**, so nothing below has been verified: app launch, every core-Linksi regression test,
+the share receiver, Android 16/ColorOS behaviour, edge-to-edge and predictive back, rotations,
+process death, update-over-install, and every downloader/accessibility/bubble behaviour. The
+minimum release gate (testing plan section 100) is **not** met, and no APK may be released as stable.
