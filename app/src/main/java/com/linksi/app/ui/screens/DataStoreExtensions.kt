@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.linksi.app.enhanced.EnhancedPreferenceKeys
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "linksi_settings")
 val FOLDER_VIEW_MODE = stringPreferencesKey("folder_view_mode")
@@ -43,3 +44,14 @@ val EXPORT_INCLUDE_LOCKED = booleanPreferencesKey("export_include_locked")
 
 // Enhanced: URL cleaning (specification section 9.5). Recommended default: enabled.
 val AUTO_CLEAN_URLS = booleanPreferencesKey("auto_clean_urls")
+
+// Enhanced optional modules (specification sections 11, 12, 22, 24 and 34). The key *names* live in
+// EnhancedPreferenceKeys so the feature modules and the settings UI cannot drift apart. Every one of
+// these is off unless the user turns it on; core Linksi never depends on any of them.
+val ENHANCED_SMART_DETECTION = booleanPreferencesKey(EnhancedPreferenceKeys.SMART_LINK_DETECTION)
+val ENHANCED_FLOATING_BUBBLE = booleanPreferencesKey(EnhancedPreferenceKeys.FLOATING_BUBBLE)
+val ENHANCED_ACCESSIBILITY = booleanPreferencesKey(EnhancedPreferenceKeys.ACCESSIBILITY_ASSISTANCE)
+val ENHANCED_DOWNLOAD_NOTIFICATIONS = booleanPreferencesKey(EnhancedPreferenceKeys.DOWNLOAD_NOTIFICATIONS)
+val ENHANCED_SERVER_FALLBACK_ENABLED = booleanPreferencesKey(EnhancedPreferenceKeys.SERVER_FALLBACK_ENABLED)
+val ENHANCED_SERVER_FALLBACK_URL = stringPreferencesKey(EnhancedPreferenceKeys.SERVER_FALLBACK_URL)
+val ENHANCED_SERVER_FALLBACK_API_KEY = stringPreferencesKey(EnhancedPreferenceKeys.SERVER_FALLBACK_API_KEY)

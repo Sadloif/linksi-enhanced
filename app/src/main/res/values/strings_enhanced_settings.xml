@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Strings for the optional enhanced modules and their settings screen.
+  Kept in their own file so the enhanced work never collides with the baseline strings.xml.
+-->
+<resources>
+    <!-- Hub entry -->
+    <string name="enhanced_features">Enhanced features</string>
+    <string name="enhanced_features_subtitle">Optional extras: link detection, bubble, cleaner and downloads</string>
+    <string name="enhanced_features_title">Enhanced Features</string>
+    <string name="enhanced_intro">These extras are optional. Linksi works exactly as before with all of them switched off, and none of them is required for saving, sharing or organising links.</string>
+
+    <!-- Smart detection -->
+    <string name="enhanced_smart_detection">Smart Link Detection</string>
+    <string name="enhanced_smart_detection_subtitle">Notice when you copy a link</string>
+
+    <!-- Floating bubble -->
+    <string name="enhanced_floating_bubble">Floating Linksi Bubble</string>
+    <string name="enhanced_floating_bubble_subtitle">Show a small bubble when a link is detected</string>
+
+    <!-- Accessibility -->
+    <string name="enhanced_accessibility">Accessibility assistance</string>
+    <string name="enhanced_accessibility_subtitle">Improve detection of link copy actions</string>
+    <string name="enhanced_accessibility_disclosure">Linksi can optionally use Android Accessibility services to detect likely link-related actions and show its quick action bubble. This feature is optional. Standard sharing and saving work without it. Linksi never reads password fields, never stores screen contents and never sends accessibility data anywhere.</string>
+
+    <!-- Downloads -->
+    <string name="enhanced_download_notifications">Download notifications</string>
+    <string name="enhanced_download_notifications_subtitle">Show progress and completion notifications for downloads</string>
+
+    <!-- Optional private server -->
+    <string name="enhanced_server_fallback">Private server fallback</string>
+    <string name="enhanced_server_fallback_subtitle">Ask your own server to resolve a link when the device cannot</string>
+    <string name="enhanced_server_fallback_url">Server address</string>
+    <string name="enhanced_server_fallback_url_hint">https://example.com</string>
+    <string name="enhanced_server_fallback_key">Access token (optional)</string>
+    <string name="enhanced_server_fallback_disclosure">When local extraction fails, the link\'s URL is sent to the server you configure so it can return the media information. Nothing else is sent: no clipboard contents, no screen contents and no saved links. Linksi keeps working if the server is offline.</string>
+    <string name="enhanced_server_fallback_https_required">The server address must use HTTPS.</string>
+
+    <!-- Download error messages (specification section 68) -->
+    <string name="error_download_unsupported">This URL is not supported for downloading.</string>
+    <string name="error_download_private">This post appears to be private.</string>
+    <string name="error_download_gone">The media is no longer available.</string>
+    <string name="error_download_login_required">Login is required by this website.</string>
+    <string name="error_download_network">The download could not reach the network.</string>
+    <string name="error_download_failed">The download could not be completed.</string>
+    <string name="error_download_no_formats">No downloadable formats were found.</string>
+    <string name="error_download_no_storage">Not enough storage is available.</string>
+    <string name="error_download_engine_unavailable">This device does not support the local downloader.</string>
+    <string name="error_download_server_unavailable">The private server is unavailable.</string>
+    <string name="error_download_cancelled">The download was cancelled.</string>
+</resources>

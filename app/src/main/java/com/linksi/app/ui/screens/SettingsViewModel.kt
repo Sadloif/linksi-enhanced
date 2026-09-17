@@ -61,6 +61,14 @@ data class SettingsUiState(
     val trashBinEnabled: Boolean = true,
     val showQuickFilters: Boolean = true,
     val autoCleanUrls: Boolean = true,
+    // Enhanced optional modules. All off by default except download notifications.
+    val smartLinkDetection: Boolean = false,
+    val floatingBubble: Boolean = false,
+    val accessibilityAssistance: Boolean = false,
+    val downloadNotifications: Boolean = true,
+    val serverFallbackEnabled: Boolean = false,
+    val serverFallbackUrl: String = "",
+    val serverFallbackApiKey: String = "",
     val globalPreventScreenshot: Boolean = false,
     val exportIncludeLocked: Boolean = false
 )
@@ -122,6 +130,13 @@ class SettingsViewModel @Inject constructor(
                         trashBinEnabled = prefs[TRASH_BIN_ENABLED] ?: true,
                         showQuickFilters = prefs[SHOW_QUICK_FILTERS] ?: true,
                         autoCleanUrls = prefs[AUTO_CLEAN_URLS] ?: true,
+                        smartLinkDetection = prefs[ENHANCED_SMART_DETECTION] ?: false,
+                        floatingBubble = prefs[ENHANCED_FLOATING_BUBBLE] ?: false,
+                        accessibilityAssistance = prefs[ENHANCED_ACCESSIBILITY] ?: false,
+                        downloadNotifications = prefs[ENHANCED_DOWNLOAD_NOTIFICATIONS] ?: true,
+                        serverFallbackEnabled = prefs[ENHANCED_SERVER_FALLBACK_ENABLED] ?: false,
+                        serverFallbackUrl = prefs[ENHANCED_SERVER_FALLBACK_URL] ?: "",
+                        serverFallbackApiKey = prefs[ENHANCED_SERVER_FALLBACK_API_KEY] ?: "",
                         globalPreventScreenshot = prefs[GLOBAL_PREVENT_SCREENSHOT] ?: false,
                         exportIncludeLocked = prefs[EXPORT_INCLUDE_LOCKED] ?: false
                     )
@@ -434,6 +449,55 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             context.dataStore.edit { it[TRASH_BIN_ENABLED] = enabled }
             _uiState.update { it.copy(trashBinEnabled = enabled) }
+        }
+    }
+
+    fun setSmartLinkDetection(enabled: Boolean) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_SMART_DETECTION] = enabled }
+            _uiState.update { it.copy(smartLinkDetection = enabled) }
+        }
+    }
+
+    fun setFloatingBubble(enabled: Boolean) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_FLOATING_BUBBLE] = enabled }
+            _uiState.update { it.copy(floatingBubble = enabled) }
+        }
+    }
+
+    fun setAccessibilityAssistance(enabled: Boolean) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_ACCESSIBILITY] = enabled }
+            _uiState.update { it.copy(accessibilityAssistance = enabled) }
+        }
+    }
+
+    fun setDownloadNotifications(enabled: Boolean) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_DOWNLOAD_NOTIFICATIONS] = enabled }
+            _uiState.update { it.copy(downloadNotifications = enabled) }
+        }
+    }
+
+    fun setServerFallbackEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_SERVER_FALLBACK_ENABLED] = enabled }
+            _uiState.update { it.copy(serverFallbackEnabled = enabled) }
+        }
+    }
+
+    fun setServerFallbackUrl(url: String) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_SERVER_FALLBACK_URL] = url.trim() }
+            _uiState.update { it.copy(serverFallbackUrl = url.trim()) }
+        }
+    }
+
+    fun setServerFallbackApiKey(key: String) {
+        viewModelScope.launch {
+            context.dataStore.edit { it[ENHANCED_SERVER_FALLBACK_API_KEY] = key.trim() }
+            _uiState.update { it.copy(serverFallbackApiKey = key.trim()) }
         }
     }
 

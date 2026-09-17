@@ -57,9 +57,10 @@ fun SettingsScreen(
     var showSecuritySettings by remember { mutableStateOf(false) }
     var showSecurityAuth by remember { mutableStateOf(false) }
     var showTrashBin by remember { mutableStateOf(false) }
+    var showEnhancedSettings by remember { mutableStateOf(false) }
 
     // Handle system back button
-    BackHandler(enabled = !showAiOrganizer && !showImportExport && !showAiSettings && !showThemeSettings && !showSecuritySettings && !showSecurityAuth && !showTrashBin) {
+    BackHandler(enabled = !showAiOrganizer && !showImportExport && !showAiSettings && !showThemeSettings && !showSecuritySettings && !showSecurityAuth && !showTrashBin && !showEnhancedSettings) {
         onBack()
     }
 
@@ -156,6 +157,24 @@ fun SettingsScreen(
                         title = stringResource(id = com.linksi.app.R.string.trash_bin),
                         subtitle = stringResource(id = com.linksi.app.R.string.trash_bin_subtitle),
                         onClick = { showTrashBin = true },
+                        trailingContent = {
+                            Icon(
+                                Icons.Outlined.ChevronRight, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                }
+            }
+
+            // ── Enhanced (optional) ───────────────────────────────
+            item {
+                SettingsCard {
+                    SettingsItem(
+                        icon = Icons.Outlined.AutoFixHigh,
+                        title = stringResource(id = com.linksi.app.R.string.enhanced_features),
+                        subtitle = stringResource(id = com.linksi.app.R.string.enhanced_features_subtitle),
+                        onClick = { showEnhancedSettings = true },
                         trailingContent = {
                             Icon(
                                 Icons.Outlined.ChevronRight, null,
@@ -500,6 +519,32 @@ fun SettingsScreen(
             onDynamicColorToggled = { viewModel.setDynamicColorEnabled(it) },
             onQuickFiltersToggled = { viewModel.setShowQuickFilters(it) },
             onBack = { showThemeSettings = false }
+        )
+    }
+
+    // ── Enhanced features overlay ────────────────────────────
+    AnimatedVisibility(
+        visible = showEnhancedSettings,
+        enter = slideInHorizontally(initialOffsetX = { it }),
+        exit = slideOutHorizontally(targetOffsetX = { it })
+    ) {
+        BackHandler { showEnhancedSettings = false }
+        EnhancedSettingsScreen(
+            smartLinkDetection = state.smartLinkDetection,
+            floatingBubble = state.floatingBubble,
+            accessibilityAssistance = state.accessibilityAssistance,
+            downloadNotifications = state.downloadNotifications,
+            serverFallbackEnabled = state.serverFallbackEnabled,
+            serverFallbackUrl = state.serverFallbackUrl,
+            serverFallbackApiKey = state.serverFallbackApiKey,
+            onSmartLinkDetectionToggled = { viewModel.setSmartLinkDetection(it) },
+            onFloatingBubbleToggled = { viewModel.setFloatingBubble(it) },
+            onAccessibilityToggled = { viewModel.setAccessibilityAssistance(it) },
+            onDownloadNotificationsToggled = { viewModel.setDownloadNotifications(it) },
+            onServerFallbackEnabledToggled = { viewModel.setServerFallbackEnabled(it) },
+            onServerFallbackUrlChanged = { viewModel.setServerFallbackUrl(it) },
+            onServerFallbackApiKeyChanged = { viewModel.setServerFallbackApiKey(it) },
+            onBack = { showEnhancedSettings = false }
         )
     }
 
