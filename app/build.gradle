@@ -48,6 +48,28 @@ android {
         }
     }
 
+    /**
+     * ABI splits (specification section 32: ship a small per-device APK *and* one universal APK).
+     *
+     * The bundled yt-dlp/FFmpeg payload is by far the largest thing in this app - roughly one
+     * Python interpreter plus one FFmpeg per ABI - so a universal APK carries four copies of it and
+     * is several times the size of a single-ABI one. Splitting is what makes the normal install
+     * small again.
+     *
+     * `reset()` is required: AGP otherwise merges in its own default ABI list, and the build then
+     * also emits splits for ABIs this app does not target. The universal APK is kept so there is
+     * always one artifact that installs anywhere (and so `assembleDebug` output is never ambiguous
+     * about which device it fits).
+     */
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a'
+            universalApk true
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
@@ -76,6 +98,17 @@ android {
     packaging {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+        jniLibs {
+            // You must keep the bundled native payload *extracted* on disk. `youtubedl-android`
+            // runs its bundled CPython as a real child process (`/system/bin/sh -c ...`), so the
+            // interpreter has to exist as a file with a path. With the AGP default
+            // (useLegacyPackaging = false) the loader maps the .so straight out of the APK and
+            // exec() cannot see it, which is the documented cause of the "python not found" /
+            // EACCES class of init failures. This also sets android:extractNativeLibs="true" in
+            // the merged manifest. Cost: the install grows by the extracted .so size, which the
+            // youtubedl-android maintainers consider mandatory rather than optional.
+            useLegacyPackaging = true
         }
     }
 
@@ -154,6 +187,27 @@ dependencies {
     implementation 'androidx.work:work-runtime-ktx:2.11.2'
     implementation 'androidx.hilt:hilt-work:1.2.0'
     ksp 'androidx.hilt:hilt-compiler:1.2.0'
+
+    // Site-specific media extraction and muxed downloads (specification sections 16 and 19).
+    //
+    // LICENCE CONSEQUENCE, STATED PLAINLY AND NOT SOFTENED: `youtubedl-android` and the FFmpeg it
+    // bundles are both GPL-3.0 (the published POM for library:0.17.3 declares
+    // <license><name>GPL-3.0 license</name></license>, and the :ffmpeg artifact ships Termux's
+    // FFmpeg, built with --enable-gpl --enable-version3 plus libx264/libx265/libxvid). Linking
+    // either of them makes this APK a GPL-3.0 combined work as a whole: any *distributed* build
+    // containing them must therefore be licensed GPL-3.0 in its entirety, ship the complete
+    // corresponding source, carry the appropriate legal notices and honour GPL-3.0 section 6
+    // (Installation Information). That re-licenses the rest of this fork, which was MIT. Private,
+    // personal, undistributed use is unaffected by any of this - no distribution, no obligation.
+    // The project owner accepted that trade-off explicitly in order to have a working downloader.
+    //
+    // Version pinned to 0.17.3 on purpose, NOT 0.18.x: 0.18.x claims 16 KB page-size support but
+    // still ships 4 KB-aligned libraries inside libffmpeg.zip.so (upstream issue #365, open), which
+    // aborts the native linker the first time FFmpeg loads on a 16 KB-page device. 0.17.3 is also
+    // the version Seal ships. Maven Central only: the JitPack coordinate fails to build for every
+    // version >= 0.15.0.
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.17.3'
+    implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.17.3'
 
     // Testing
     testImplementation 'junit:junit:4.13.2'

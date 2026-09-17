@@ -6,6 +6,7 @@ import com.linksi.app.enhanced.download.DownloadEngine
 import com.linksi.app.enhanced.download.WorkManagerDownloadEngine
 import com.linksi.app.enhanced.media.ExtractorRegistry
 import com.linksi.app.enhanced.media.direct.DirectFileExtractor
+import com.linksi.app.enhanced.media.ytdlp.YtDlpExtractor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -56,14 +57,19 @@ object EnhancedMediaModule {
         DirectFileExtractor(client)
 
     /**
-     * The extractor list the media layer sees. Direct files are the only backend bundled today;
-     * heavier engines are added to this list by their own modules, and the registry keeps their
-     * order deterministic.
+     * The extractor list the media layer sees, best first.
+     *
+     * The direct-file probe outranks the site engine (100 against 50) because it costs two cheap
+     * requests, and it is tried before an engine that has to start a Python interpreter. Creating
+     * this list starts nothing: [YtDlpExtractor] only initialises its engine on the first
+     * `analyze`, and `isAvailable` merely reads the ABI report and stats two files.
      */
     @Provides
     @Singleton
-    fun provideExtractorRegistry(directFile: DirectFileExtractor): ExtractorRegistry =
-        ExtractorRegistry(listOf(directFile))
+    fun provideExtractorRegistry(
+        directFile: DirectFileExtractor,
+        ytDlp: YtDlpExtractor
+    ): ExtractorRegistry = ExtractorRegistry(listOf(directFile, ytDlp))
 
     @Provides
     @Singleton
