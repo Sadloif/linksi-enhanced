@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -644,7 +645,9 @@ fun AddLinkSheet(
                         }
                     },
                     enabled = url.isNotBlank() && !isFetchingMetadata && !isFetchingPreview,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    // Tagged so the instrumented tests can target this exact button: the sheet header
+                    // carries the same "Save link" label, so matching by text alone is ambiguous.
+                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("add_link_save"),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Icon(Icons.Filled.Bookmark, null, Modifier.size(18.dp))
