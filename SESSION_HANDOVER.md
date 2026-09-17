@@ -209,7 +209,15 @@ artefact that looks exactly like a real crash.
    (attaches the universal APK + sha256). Both need a token at
    `E:\Deepseek\Linksi\keys\github-token.txt` (classic, scopes `repo` + `workflow`).
    **The previous token is in an old transcript — do not reuse it.**
-6. **Licence question (distribution only).** Upstream declares MIT but has never committed a
+6. **`POST_NOTIFICATIONS` is declared but never requested at runtime.** Upstream's gap, not ours, and
+   it becomes visible the moment this is tested on Android 13+ (the POCO X3 Pro): download progress
+   and completion notifications will simply never appear, with no error. The download itself still
+   works — `DownloadNotifications` checks the permission and drops the post rather than failing — but
+   the testing plan §56 explicitly expects a granted/denied/revoked matrix and an explanation in the
+   UI. **Fix:** request the permission the first time the user enables download notifications (or
+   starts the first download), never at launch, per the spec's feature-based permission rule (§33).
+   Small, self-contained, and worth doing before the device pass so §56 can be tested properly.
+7. **Licence question (distribution only).** Upstream declares MIT but has never committed a
    `LICENSE` file, and this build now bundles GPL-3.0 code. Private use is unaffected; sharing an APK
    is not. See `LICENSE_REVIEW.md` and `DEPENDENCY_REVIEW.md` §8.
 
@@ -277,9 +285,20 @@ Two rules to carry over with it:
 
 ## 10. Testing on a physical Android device
 
-The owner's target device is an **OPPO Reno15 / ColorOS 16 / Android 16 (arm64)**. This is the
-highest-value testing available, because the emulator's datacentre IP is blocked by Instagram,
-Facebook, TikTok, Pinterest and Reddit, and because nothing has run on real hardware yet.
+Two real devices are available. They answer **different** questions, and both are worth running:
+
+| | OPPO Reno15 | **POCO X3 Pro** |
+|---|---|---|
+| OS | Android 16 / ColorOS 16 | **Android 13 (API 33) / MIUI** |
+| ABI | arm64-v8a | **arm64-v8a** (Snapdragon 860) |
+| Answers | the spec's primary Android 16 target, ColorOS background limits | **the arm64 native payload, Android 13, a second manufacturer, and — most importantly — a residential IP that the five target sites do not block** |
+| Already covered by the emulator? | no (emulator is API 36 x86_64) | no (emulator is x86_64 only) |
+
+The POCO X3 Pro is the higher-value device for the current open items: the emulator has only ever run
+the **x86_64** build, so the **arm64** Python/FFmpeg payload shipped in the release APK has never
+executed anywhere, and the emulator's datacentre IP is blocked by Instagram, Facebook, TikTok,
+Pinterest and Reddit. Android 13 also satisfies the testing plan's multi-version requirement (§63)
+and MIUI satisfies its second-manufacturer requirement (§64).
 
 ### 10.1 Which APK to install
 
