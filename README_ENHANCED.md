@@ -141,9 +141,20 @@ relicense this entire app. yt-dlp itself is Unlicense. See
 
 | Tier | State |
 |---|---|
-| **Direct files** — images, PDFs, audio, video, archives, detected from `Content-Type` | **Implemented**, with a single "Original quality" format, resumable transfer, progress, cancel and MediaStore output |
-| **Site-specific extraction** (Instagram, Facebook, TikTok, Pinterest, Reddit) | **Not implemented.** Requires an extractor dependency decision (permissive MIT wrapper, or the optional server resolver, or accepting GPL-3.0 for private use only) |
+| **Direct files** — images, PDFs, audio, video, archives, detected from `Content-Type` | **Implemented and device-verified**, with a single "Original quality" format, resumable transfer, progress, cancel and MediaStore output |
+| **Site-specific extraction** (Instagram, Facebook, TikTok, Pinterest, Reddit, plus anything else yt-dlp handles) | **Implemented** via `youtubedl-android` 0.17.3 + FFmpeg, behind the same `MediaExtractor` interface. Extraction and the interpreter are verified on a device; **the FFmpeg merge path is not**, and the five target sites could not be confirmed from a datacentre IP |
 | **Private server resolver** | **Implemented client**; the server itself is not part of this repository |
+
+> ⚠️ **Licence consequence.** `youtubedl-android` and the FFmpeg it bundles are **GPL-3.0**, so a
+> *distributed* build of this app is a GPL-3.0 combined work as a whole — it must ship its complete
+> corresponding source and notices. Private, personal, undistributed use carries no such obligation.
+> This was a deliberate decision to get a working downloader; the rest of the app remains
+> licence-clean, and removing the dependency is a build-file change plus one package. See
+> [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) §8.
+
+Because the bundled payload is one Python interpreter plus one FFmpeg per ABI, the build produces
+**ABI splits**: a ~36 MB `arm64-v8a` APK and a ~120 MB universal one, against 5.21 MB before this
+dependency.
 
 Downloads run through WorkManager with a `dataSync` foreground service, write into the public
 Downloads collection on Android 10+ (no storage permission required) and into app-specific storage
@@ -157,8 +168,9 @@ the download action: saving, opening, sharing and copying the link all keep work
 - **Direct file URLs** — any site, when the URL points at a file (`image/*`, `video/*`, `audio/*`,
   `application/pdf`, archives). This covers Pinterest image pins, Reddit images, direct MP4s, PDFs
   and similar.
-- **Instagram, Facebook, TikTok, Pinterest video, Reddit video** — depend on the extractor tier
-  described in §8 and are **not enabled in this build**.
+- **Instagram, Facebook, TikTok, Pinterest video, Reddit video** — handled by yt-dlp behind the same
+  interface. Extraction is verified working on a device for a generic video URL; the five named sites
+  could not be confirmed from the test environment, whose datacentre IP most of them block.
 - **Anything else** — not promised. The app never claims support it cannot deliver: a URL that
   cannot be resolved shows "This URL is not supported for downloading." and the link is still saved
   normally.
@@ -193,7 +205,9 @@ Everything here is documented rather than hidden. See [TEST_REPORT.md](TEST_REPO
 full list.
 
 - **No physical-device testing has happened.** All device evidence is from one Android 16 emulator.
-- **No site-specific extractors** (see §8), so Instagram/Facebook/TikTok downloads are unavailable.
+- **No site-specific extractor result has been confirmed for Instagram, Facebook, TikTok, Pinterest
+  or Reddit.** yt-dlp itself is verified working on the device, but those sites block the test
+  environment's IP. A physical device on a normal connection is needed to confirm them.
 - **The bubble's Android 14+/15 background-activity launch is unverified** on hardware; it is
   guarded and fails silently, with a notification fallback as the known remedy.
 - **Reminders are broken in upstream Linksi** and were not fixed here: the scheduling stubs are
