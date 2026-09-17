@@ -69,9 +69,20 @@ Write-Host "  uncommitted : $dirty"
 Write-Host ""
 
 # ── environment ───────────────────────────────────────────────────────────────
-$env:JAVA_HOME = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'E:\Deepseek\Linksi\toolchain\jdk-17' }
-if (-not $env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME = 'E:\Deepseek\Linksi\local\.gradle-home-main' }
-if (-not $env:GRADLE_OPTS) { $env:GRADLE_OPTS = "-Djava.io.tmpdir=$((Split-Path $RepoRoot -Parent))\.tmp" }
+# The project keeps its toolchain and caches in sibling folders of the checkout, under the Linksi
+# umbrella (repo\, toolchain\, local\, keys\, artifacts\). Every path is derived so the layout can
+# move without editing this script.
+$umbrella = Split-Path $RepoRoot -Parent
+if (-not $env:JAVA_HOME) {
+    $toolchainJdk = Join-Path $umbrella 'toolchain\jdk-17'
+    $env:JAVA_HOME = if (Test-Path (Join-Path $toolchainJdk 'bin\java.exe')) { $toolchainJdk } else { 'E:\Deepseek\jdk-17' }
+}
+if (-not $env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME = Join-Path $umbrella 'local\.gradle-home-main' }
+if (-not $env:GRADLE_OPTS) {
+    $tmpDir = Join-Path $umbrella 'local\.tmp'
+    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    $env:GRADLE_OPTS = "-Djava.io.tmpdir=$tmpDir"
+}
 if (-not $env:DEBUG_KEYSTORE_PATH) { $env:DEBUG_KEYSTORE_PATH = Join-Path (Split-Path $KeystorePath -Parent) 'debug.keystore' }
 $env:KEYSTORE_PATH = $KeystorePath
 $env:KEYSTORE_PASSWORD = $storePassword
@@ -79,14 +90,30 @@ $env:KEY_ALIAS = $keyAlias
 $env:KEY_PASSWORD = $keyPassword
 
 $ErrorActionPreference = 'Continue'
-$tasks = @()
-if (-not $SkipChecks) { $tasks += ':app:testDebugUnitTest', ':app:lintDebug' }
-$tasks += ':app:assembleRelease'
-
 $log = Join-Path $RepoRoot 'build-release.log'
-& (Join-Path $RepoRoot 'gradlew.bat') -p $RepoRoot @tasks --console=plain --no-watch-fs 2>&1 |
-    Tee-Object -FilePath $log | Select-Object -Last 8
-$code = $LASTEXITCODE
+
+function Invoke-Gradle([string[]]$Tasks) {
+    Write-Host ("=== gradlew {0} ===" -f ($Tasks -join ' '))
+    # Everything goes to the log file, and to the host (not to the output stream, which would
+    # otherwise be captured as this function's return value alongside the exit code).
+    & (Join-Path $RepoRoot 'gradlew.bat') -p $RepoRoot @Tasks --console=plain --no-watch-fs 2>&1 |
+        Tee-Object -FilePath $log -Append |
+        ForEach-Object { Write-Host $_ }
+    return $LASTEXITCODE
+}
+
+$code = 0
+if (-not $SkipChecks) {
+    # Tests and lint run in their own invocation, separate from assembleRelease. In a single
+    # invocation lint's debug analysis can reach for release-variant KSP output that has not been
+    # generated yet and dies with "Unexpected failure during lint analysis ... Hilt_MainActivity.java
+    # (The system cannot find the path specified)".
+    $code = Invoke-Gradle @(':app:testDebugUnitTest', ':app:lintDebug')
+}
+
+if ($code -eq 0) {
+    $code = Invoke-Gradle @(':app:assembleRelease')
+}
 
 if ($code -ne 0) {
     Write-Host "BUILD FAILED - see $log"
