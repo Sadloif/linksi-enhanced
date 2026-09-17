@@ -68,6 +68,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    /** True when the caller asked to land directly on the Downloads screen (quick panel action). */
+    openDownloadsOnStart: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -85,6 +87,16 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     val gridState = rememberLazyStaggeredGridState()
     val scope = rememberCoroutineScope()
+
+    // The Downloads deep link opens Settings, which then shows its Downloads overlay. Guarded so
+    // it happens once per launch and never fights the user's own back navigation.
+    var openedDownloadsFromIntent by remember { mutableStateOf(false) }
+    LaunchedEffect(openDownloadsOnStart) {
+        if (openDownloadsOnStart && !openedDownloadsFromIntent) {
+            openedDownloadsFromIntent = true
+            showSettings = true
+        }
+    }
 
     val showScrollToTop by remember(viewMode) {
         derivedStateOf {
@@ -554,7 +566,10 @@ fun HomeScreen(
             enter = slideInHorizontally(initialOffsetX = { it }),
             exit = slideOutHorizontally(targetOffsetX = { it })
         ) {
-            SettingsScreen(onBack = { showSettings = false })
+            SettingsScreen(
+                openDownloadsOnStart = openDownloadsOnStart,
+                onBack = { showSettings = false }
+            )
         }
 
         AnimatedVisibility(

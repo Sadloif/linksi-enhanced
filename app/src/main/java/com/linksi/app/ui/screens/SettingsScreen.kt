@@ -36,11 +36,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linksi.app.domain.model.AiProvider
+import com.linksi.app.enhanced.ui.DownloadsScreen
 import com.linksi.app.utils.exportFileName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    /** True when the caller asked to land directly on Downloads (quick panel action). */
+    openDownloadsOnStart: Boolean = false,
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
@@ -58,9 +61,20 @@ fun SettingsScreen(
     var showSecurityAuth by remember { mutableStateOf(false) }
     var showTrashBin by remember { mutableStateOf(false) }
     var showEnhancedSettings by remember { mutableStateOf(false) }
+    var showDownloads by remember { mutableStateOf(false) }
+
+    // The Downloads deep link (the quick panel's "Open Downloads") lands straight on the overlay.
+    // `rememberSaveable` would re-open it after process death, so a plain one-shot guard is right.
+    var openedDownloadsFromIntent by remember { mutableStateOf(false) }
+    LaunchedEffect(openDownloadsOnStart) {
+        if (openDownloadsOnStart && !openedDownloadsFromIntent) {
+            openedDownloadsFromIntent = true
+            showDownloads = true
+        }
+    }
 
     // Handle system back button
-    BackHandler(enabled = !showAiOrganizer && !showImportExport && !showAiSettings && !showThemeSettings && !showSecuritySettings && !showSecurityAuth && !showTrashBin && !showEnhancedSettings) {
+    BackHandler(enabled = !showAiOrganizer && !showImportExport && !showAiSettings && !showThemeSettings && !showSecuritySettings && !showSecurityAuth && !showTrashBin && !showEnhancedSettings && !showDownloads) {
         onBack()
     }
 
@@ -175,6 +189,24 @@ fun SettingsScreen(
                         title = stringResource(id = com.linksi.app.R.string.enhanced_features),
                         subtitle = stringResource(id = com.linksi.app.R.string.enhanced_features_subtitle),
                         onClick = { showEnhancedSettings = true },
+                        trailingContent = {
+                            Icon(
+                                Icons.Outlined.ChevronRight, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    )
+                }
+            }
+
+            // ── Downloads ─────────────────────────────────────────
+            item {
+                SettingsCard {
+                    SettingsItem(
+                        icon = Icons.Outlined.Download,
+                        title = stringResource(id = com.linksi.app.R.string.downloads_title),
+                        subtitle = stringResource(id = com.linksi.app.R.string.downloads_subtitle),
+                        onClick = { showDownloads = true },
                         trailingContent = {
                             Icon(
                                 Icons.Outlined.ChevronRight, null,
@@ -546,6 +578,18 @@ fun SettingsScreen(
             onServerFallbackApiKeyChanged = { viewModel.setServerFallbackApiKey(it) },
             onBack = { showEnhancedSettings = false }
         )
+    }
+
+    // ── Downloads overlay ─────────────────────────────────────
+    // Opened on demand and only then; its view-model starts observing the engine at that moment,
+    // so nothing download-related runs at app start (specification section 26).
+    AnimatedVisibility(
+        visible = showDownloads,
+        enter = slideInHorizontally(initialOffsetX = { it }),
+        exit = slideOutHorizontally(targetOffsetX = { it })
+    ) {
+        BackHandler { showDownloads = false }
+        DownloadsScreen(onBack = { showDownloads = false })
     }
 
     // ── AI Settings overlay ──────────────────────────────────
