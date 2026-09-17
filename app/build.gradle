@@ -140,6 +140,10 @@ dependencies {
 
     // Testing
     testImplementation 'junit:junit:4.13.2'
+    // Test-scope only: the Android platform provides org.json at runtime, but unit tests run
+    // against stubbed android.jar where JSONObject throws "not mocked". This dependency is NOT
+    // packaged into the APK. It is covered in DEPENDENCY_REVIEW.md.
+    testImplementation 'org.json:json:20240303'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     androidTestImplementation platform('androidx.compose:compose-bom:2024.10.00')
