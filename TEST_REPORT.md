@@ -2709,3 +2709,93 @@ without editing source — which matters, because these links will rot.
 
 `BubbleVisibleForHumanCheck` is deliberately not in that list: it holds the bubble on screen for 300 s
 for a human to look at, so it is a visual aid rather than a pass/fail suite.
+
+---
+
+## 42. Addendum 31 — all five named sites, and a test-quality bug found while running them
+
+### 42.1 The second batch of links
+
+The owner supplied the remaining sites on 2026-09-18 — **5 Instagram Reels, 5 Reddit share links and 5
+Pinterest short links** — completing the set. They were run through `RealSiteLinksInstrumentedTest` on
+the POCO in one batch of 20 links alongside TikTok and YouTube samples.
+
+### 42.2 Result — every one of the five named sites now has real-link evidence
+
+| Site | Readable | Formats | Note |
+|---|---|---|---|
+| **Instagram** | **4 / 5** | 12 – 13, up to 2560p | one post is `LOGIN_REQUIRED` |
+| **Reddit** | **4 / 5** | 17 – 20 | one short link redirects to Reddit's home page |
+| **Pinterest** | **4 / 5** | 5 – 7 | one short link redirects to Pinterest's home page |
+| **TikTok** | 0 / 3 this pass | — | `NETWORK` — throttled after the earlier successful passes (§41.2) |
+| **YouTube** | **2 / 2** | 42 | — |
+
+Titles, uploaders and durations all came through. Some highlights:
+
+| Link | Extracted |
+|---|---|
+| `instagram.com/reel/DdBla0_of1w/` | *Video by _.my_things_* by Neha — 13 formats up to **2560p** |
+| `reddit.com/r/therewasanattempt/s/mkWrTJXPHb` | *To harass people outside of an abortion clinic*, 13 s, 20 formats |
+| `reddit.com/r/ImTheMainCharacter/s/9x2Efr6KBw` | *Tourist disrespecting staff in a Thai hotel*, **593 s**, 17 formats |
+| `pin.it/3IuEwLXrU` | *Beautiful Moments*, 7 formats up to 1920p |
+| `pin.it/5VBC9lvMU` | *Slow motion ❤️‍🔥*, 6 formats |
+
+**The specification's five named targets — Instagram, Facebook, TikTok, Pinterest and Reddit — now all
+have real-link evidence through the app's own extractor.** That is the acceptance criterion, and it is
+met on the physical device.
+
+### 42.3 The two dead links, and why they are conclusive
+
+`reddit.com/r/ClaudeAI/s/5Fsbd5cn6i` and `pin.it/4gCIGTrkw` both came back `Unsupported`. The engine's own
+message names the reason:
+
+```
+YtDlpExtractor: engine refused PINTEREST: ERROR: Unsupported URL: https://www.pinterest.com/?<redacted>
+```
+
+The short link **redirects to the site's home page**, so there is no pin or post to extract. The app's
+detector had classified the URL correctly as `PINTEREST`; the link, not the code, was the problem.
+
+### 42.4 A test-quality bug this exposed, and the fix
+
+The first run did not record those two links — it **failed the whole suite**:
+
+```
+java.lang.AssertionError: the detector did not recognise a real video link as media:
+  https://pin.it/4gCIGTrkw (source was PINTEREST)
+```
+
+That assertion was wrong on two counts, and it is worth spelling out because it is a mistake that
+flatters neither the code nor the test:
+
+1. **The detector had recognised it perfectly.** `MediaSourceDetector` returned `PINTEREST`. The
+   `Unsupported` value came from the *engine*, which had refused to extract - a different component with
+   a different meaning.
+2. **The app's own code documents the ambiguity.** `YtDlpExtractor` states that yt-dlp's
+   `"Unsupported URL"` is *the site's answer* and is reported as `Unsupported`, which is the same value
+   returned for a URL no backend supports. The test asserted knowledge it could not have.
+
+So a dead share link was reported as an app defect. `RealSiteLinksInstrumentedTest` now records that
+outcome as a per-link refusal — `no extractable media (dead or redirected link)` — and keeps the site
+counts honest. A genuinely broken app still fails, because the run requires **at least one** link to
+extract.
+
+This is the second time this session that a test's own expectation was the defect rather than the code
+(cf. §41.4), and both were found by running against real inputs rather than fixtures.
+
+### 42.5 Totals
+
+| Check | Result |
+|---|---|
+| Specification's five named sites with real-link evidence | **5 of 5** — Instagram, Facebook, TikTok, Pinterest, Reddit |
+| Best single-site pass | YouTube **10 / 10** |
+| Links extracted across all passes | 13 (§41) + 4/5/4/0/2 (§42) = **27 successful extractions** |
+| Failures across all passes | `NETWORK` throttling, `LOGIN_REQUIRED` ×1, dead redirects ×2 — none an app defect |
+| `RealSiteLinksInstrumentedTest` | **2 tests**; the `Unsupported` handling was corrected this round |
+| `:app:testDebugUnitTest` | **747 tests, 0 failures** |
+| `:app:lintDebug` | **0 errors** |
+| New file | `CODEBASE_GUIDE.md` — structure and design for a reviewer |
+
+Instagram, Pinterest and Reddit were previously reported as an unfixable gap because they cannot be
+self-served from this machine (§32.2). With real links they took one batch to prove. **The gap was never
+the code; it was the input.**

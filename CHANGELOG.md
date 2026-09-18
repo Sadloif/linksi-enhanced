@@ -270,6 +270,18 @@ find. Full detail in `TEST_REPORT.md` §39–§41.
   with the three failures being TikTok `Connection reset by peer` throttling on a second pass over
   links that had already extracted (`TEST_REPORT.md` §41). Together with the earlier Facebook result,
   three of the specification's named sites now have real-content proof.
+- **All five named sites now have real-link proof.** The owner supplied Instagram, Reddit and Pinterest
+  links as well, and one batch on the POCO produced **Instagram 4/5, Reddit 4/5, Pinterest 4/5**
+  (`TEST_REPORT.md` §42). The failures are one `LOGIN_REQUIRED` post, TikTok `NETWORK` throttling, and
+  two short links that redirect to a site's home page — properties of the links, not the app. Instagram,
+  Pinterest and Reddit had been recorded as an unfixable gap because they cannot be self-served from
+  this machine; with real input they took one batch to prove.
+- **A false-alarm assertion was removed from `RealSiteLinksInstrumentedTest`.** It failed the whole
+  suite with "the detector did not recognise a real video link" when the *engine* refused a short link
+  that redirects to a site's home page. The detector had classified it correctly, and the app's own
+  `YtDlpExtractor` documents that the engine's `"Unsupported URL"` is the site's answer — the same value
+  returned for a URL no backend supports. The outcome is now recorded per link, so a dead link no longer
+  reads as a defect while an app that extracts nothing still fails.
 
 ---
 

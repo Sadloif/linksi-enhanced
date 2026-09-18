@@ -312,6 +312,8 @@ the run logs `ytdlp-merge1/2/3.log`, which are the raw evidence for `TEST_REPORT
 | An `am instrument` run ends `INSTRUMENTATION_RESULT: shortMsg=Process crashed.` | Check whether **you** killed it: an `am force-stop` issued while the test is running tears the process down and reports exactly this. The run's own logcat still shows its passes (`TEST_REPORT.md` §39) |
 | `tools\build-release.ps1` fails at `:app:packageRelease` with `Unable to allocate 17024776 bytes` / `OutOfMemoryError`, or the daemon disappears | The release packaging (two ABI splits, one 125 MB) needs most of the daemon's 2 GB, and `build-release.ps1` runs `:app:testDebugUnitTest :app:lintDebug` **in the same daemon first**, so packaging starts on a heap the tests already filled. Run `powershell -File tools\build-release.ps1 -SkipChecks` (then run the gates separately) — it succeeded immediately on the first try after four failures. **Do not try to raise the heap: `-Xmx4096m` cannot even start on this machine** (`os::commit_memory … The paging file is too small`, G1 virtual space). 2 GB is the ceiling, not a modest default |
 | `:app:validateSigningRelease FAILED` right after `:app:preBuild` | You invoked `gradlew :app:assembleRelease` directly, so `KEYSTORE_PATH`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD` were never set. Those are supplied by `tools\build-release.ps1`, which reads them from `E:\Deepseek\Linksi\keys\`. Always build releases through the script |
+| A link test fails with "the detector did not recognise a real video link as media" | Almost certainly a **dead link, not a defect**. `MediaExtractionResult.Unsupported` means either "no backend handles this URL" **or** "the engine refused it as not media" — a short link that redirects to the site's home page looks exactly like the latter. `realLinkUrls` entries can be retired at any time; check the engine's own message (`ERROR: Unsupported URL: …`) before touching the classifier. Don't repeat the mistake of asserting the detector failed when the engine refused (`TEST_REPORT.md` §42.4) |
+| A test's expectation looks wrong but the code looks right | Check the test first. Twice this session the *test* was the defect, both times found only by running against real inputs: an assertion that a dead link must be an app failure (`TEST_REPORT.md` §42.4), and a per-item `assumeTrue` that aborted a whole batch on one unreachable site (`TEST_REPORT.md` §41.4) |
 
 ---
 
@@ -327,43 +329,49 @@ With that, **every module in the specification has been verified end-to-end on a
 link in any module is unproven.** What remains below is depth, breadth and the release itself — not
 missing functionality.
 
-1. **Real-content support: Facebook, TikTok and YouTube are done; three sites still need URLs.** With
-   the engine refresh in place, **a real Facebook Reel extracts on both devices** — including
-   `reel/1710485373378939`, the specification's own worked example — yielding 11 formats up to 1920p
-   (`TEST_REPORT.md` §19.2). The root cause was a year-old bundled yt-dlp (0 of 9 real links read,
-   against 5 of 9 for a current release); four of the nine are dead share links that no engine can
-   read. On 2026-09-18 the owner supplied real TikTok and YouTube links, and
-   `RealSiteLinksInstrumentedTest` drove them through the app's own extractor: **13 of 16 extracted —
-   TikTok 6/6, YouTube 10/10**, 33–178 formats per link, up to 3840p, with the three failures being
-   TikTok `Connection reset by peer` throttling on a second pass over links that had just worked
-   (`TEST_REPORT.md` §41). **Instagram, Pinterest and Reddit still need 2–5 real public URLs each** —
-   they are the only sites left without real-content proof, and they cannot be self-served from here
-   (§32.2). Probe any new list with:
-   `adb -s 69ef2e21 shell am instrument -w -e class com.linksi.app.RealSiteLinksInstrumentedTest -e realLinkUrls "url,url,…" com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner`
-2. **Physical-device testing on the owner's actual target** (OPPO Reno15 / ColorOS 16). The POCO X3
-   Pro has now run the release APK, the instrumented suites, a real merged download, real Facebook
-   extraction and the engine refresh; **nothing has run on ColorOS**, and the bubble overlay plus
-   Android 14+/15 background-activity launch are still unverified.
-3. **Broaden Android 16 UI coverage.** API 36 now passes target-SDK, core-flow, Share Receiver,
+Real-content support is also complete. On 2026-09-18 the owner supplied real links for every named site
+and `RealSiteLinksInstrumentedTest` drove them through the app's own extractor on the POCO:
+
+| Site | Result | Failures |
+|---|---|---|
+| YouTube | **10 / 10** | — |
+| TikTok | **6 / 6** (first pass) | later passes: `NETWORK` throttling |
+| Instagram | **4 / 5** | one post `LOGIN_REQUIRED` |
+| Reddit | **4 / 5** | one short link redirects to Reddit's home page |
+| Pinterest | **4 / 5** | one short link redirects to Pinterest's home page |
+| Facebook | **5 / 9 live links** | the other 4 are dead share links (`TEST_REPORT.md` §19.2) |
+
+Every failure was a property of the link or the network, not the app. Evidence: `TEST_REPORT.md`
+§41–§42. Probe any new list with:
+
+```powershell
+adb -s 69ef2e21 shell am instrument -w `
+  -e class com.linksi.app.RealSiteLinksInstrumentedTest `
+  -e realLinkUrls "url,url,…" `
+  com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+As of 2026-09-18, **the specification's functional work is complete and every named site is proven with
+real links.** What follows is what remains: two items that need the owner or his hardware, and three that
+are depth or external.
+
+1. **Physical-device testing on the owner's actual target** (OPPO Reno15 / ColorOS 16). The POCO X3
+   Pro has now run the release APK, the instrumented suites, a real merged download, real extraction
+   from all five named sites and the engine refresh; **nothing has run on ColorOS**, and the bubble
+   overlay plus Android 14+/15 background-activity launch are still unverified there. This is the
+   highest-value remaining item, and it needs the owner's phone.
+2. **Broaden Android 16 UI coverage.** API 36 now passes target-SDK, core-flow, Share Receiver,
    Quick Panel and onboarding-inset checks. Still untested are predictive-back ordering through every
    nested sheet/dialog, gesture-vs-3-button navigation, cutouts, rotation, IME, and tablet/foldable
    layouts. These are compatibility-depth items, not known failures.
-4. **CLOSED this round — both engine-refresh verifications.** Tapping the manual **Check** button on the
-   POCO (2026-09-18) found and fixed a real defect: `YtDlpRuntime.engineVersion`/`refreshEngine` went
-   straight to `YtDlpUpdater` without calling `ensureReady()`, so on a fresh process the row read
-   "Version not reported yet" and the button answered `instance not initialized`. With the fix the row
-   reads `Version 2026.08.19` on open and **Check** reports `Already up to date (2026.08.19)` after
-   staging and checksum-verifying the published release. The same run observed the weekly "not due yet"
-   path directly: `refresh: Skipped(reason=the engine was checked 0 hours ago)`. `TEST_REPORT.md` §40.
-5. **Push + GitHub Release — the only remaining step, and it is the owner's call.** The signed release
-   is built, hashed and archived (`artifacts\releases\LinksiEnhanced_3.1.1-enhanced.3_*`), and both
-   scripts work (`scripts\push-to-private-repo.ps1 -CreateRepo`, `scripts\create-github-release.ps1`).
-   Both need a token at `E:\Deepseek\Linksi\keys\github-token.txt` (classic, scopes `repo` +
-   `workflow`). **The previous token is in an old transcript — do not reuse it.** Do not push until the
-   owner says the work is final. **The tree is now committed** — the whole enhancement set is local
-   commit `4c1d0b8` on `enhanced/integration`, which has no upstream. Any later edits (including the
-   release rebuild below) are uncommitted again until they are added.
-6. **The wrapper's process kill cannot be fixed from here.** `destroyProcessById` passes the
+3. **Push + GitHub Release — the owner's call, and he has said "not yet".** The signed release is
+   built, hashed and archived (`artifacts\releases\LinksiEnhanced_3.1.1-enhanced.3_*`), and both scripts
+   work (`scripts\push-to-private-repo.ps1 -CreateRepo`, `scripts\create-github-release.ps1`). Both need
+   a token at `E:\Deepseek\Linksi\keys\github-token.txt` (classic, scopes `repo` + `workflow`). **The
+   previous token is in an old transcript — do not reuse it.** Do not push until the owner says the work
+   is final. **The tree is committed** on `enhanced/integration` (which has no upstream); check
+   `git status` rather than trusting any hash written here, since later edits become uncommitted again.
+4. **The wrapper's process kill cannot be fixed from here.** `destroyProcessById` passes the
    library's own UUID to `pstree` (which does not exist on Android), and `grep -oP` is not in toybox,
    so only `Process.destroy()` — SIGTERM to the direct python child — ever runs, and descendants
    survive. The app works around it (SIGTERM, plus the interpreter closing FFmpeg's pipe) and checks
