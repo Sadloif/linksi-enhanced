@@ -139,6 +139,16 @@ class LinksiAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString()
         val type = eventTypeOf(event.eventType)
 
+        // Debug builds only: log the arrival of the two event kinds a copy needs, BEFORE anything can
+        // filter them out. This answers "does the platform deliver a selection or a click at all for
+        // this gesture?" independently of every rule, rate limit and early return in this class - the
+        // question that kept being confused with "is our rule too strict".
+        if (BuildConfig.DEBUG &&
+            (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED || type == CopyEventType.VIEW_CLICKED)
+        ) {
+            android.util.Log.i(TAG_DEBUG, "arrived: $type pkg=$packageName")
+        }
+
         // 1. Cheapest possible rejection first: the whole feature is off.
         if (!isEnabled()) {
             CopyObservationLog.record(
@@ -201,7 +211,7 @@ class LinksiAccessibilityService : AccessibilityService() {
         // A click is rare and cheap, so it is never rate-limited; the interval still throttles the
         // heuristic path below, which is what it was for.
         if (type == CopyEventType.VIEW_CLICKED) {
-            handleCopyClick(packageName)
+            handleCopyClick(packageName, event)
         }
 
         // 3. A burst of events for one user action must not queue up work.
@@ -276,7 +286,30 @@ class LinksiAccessibilityService : AccessibilityService() {
      *     exists on the clipboard. It is accepted only when it has changed to an actionable URL since
      *     the selection began, so a link copied earlier cannot be reported as a fresh copy.
      */
-    private fun handleCopyClick(packageName: String?) {
+    private fun handleCopyClick(packageName: String?, event: AccessibilityEvent) {
+        // 0. The clicked node's own surroundings, tried first because it is the only channel a real
+        //    device has left. Measured on the OPPO, a copy in Brave delivers exactly one event:
+        //      arrived: VIEW_CLICKED pkg=com.brave.browser
+        //    No selection change, no text, and the clipboard is refused to a background reader. What
+        //    the click *does* have is a node, and the context menu the user tapped lives in that node's
+        //    tree - including, often, the link the menu item refers to.
+        clickContextUrl(event)?.let { url ->
+            lastForwardedAtMs = SystemClock.elapsedRealtime()
+            CopyObservationLog.record(
+                CopyObservation(
+                    System.currentTimeMillis(), CopyEventType.VIEW_CLICKED, packageName,
+                    CopyRejection.ACCEPTED
+                )
+            )
+            // A real link was found in the tree, so this is a copy-shaped click; the URL itself is not
+            // passed on, exactly as for the other paths.
+            if (BuildConfig.DEBUG) {
+                android.util.Log.i(TAG_DEBUG, "copy click: resolved from the node tree")
+            }
+            smartLinkDetector.onLikelyUrlCopied()
+            return
+        }
+
         // 1. A link the platform already told us about.
         val remembered = recentSelection?.takeIf { it.isFresh() }
         if (remembered != null) {
@@ -319,23 +352,93 @@ class LinksiAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * A link found in the node tree around a click, or null.
+     *
+     * This is the last channel, and on a real device it is the only one a copy in Brave leaves open.
+     * The click carries no text and no selection was reported, but the context menu the user tapped is
+     * part of the tree, and its items frequently carry the link - either as their own text
+     * ("example.com/path") or in their content description.
+     *
+     * The search is deliberately shaped around that menu rather than sweeping the page:
+     *
+     *  1. the clicked node, and its ancestors up to [MAX_ANCESTOR_HOPS] - because the action that was
+     *     tapped is usually a leaf inside a menu container;
+     *  2. then each of those nodes' subtrees, breadth-first, bounded by [MAX_TREE_NODES].
+     *
+     * A plain page link would be found by this too, which is why an ancestor must *also* look like a
+     * copy affordance before the link is accepted: a copy label ("Copy", "Copy link address") on any
+     * node in the same subtree. That keeps an ordinary tap on a link from raising a bubble, which a
+     * test pins.
+     *
+     * Everything is wrapped and bounded: a null or partial tree simply yields null, leaving detection
+     * exactly as it was before this method existed.
+     */
+    private fun clickContextUrl(event: AccessibilityEvent): String? = runCatching {
+        val clicked = event.source ?: return@runCatching null
+
+        // The chain: the clicked node and its ancestors, which is where a menu container lives.
+        val chain = mutableListOf<AccessibilityNodeInfo>()
+        var current: AccessibilityNodeInfo? = clicked
+        var hops = 0
+        while (current != null && hops < MAX_ANCESTOR_HOPS) {
+            chain.add(current)
+            current = current.parent
+            hops++
+        }
+
+        for (anchors in chain) {
+            if (!subtreeLooksLikeACopyAction(anchors)) continue
+            subtreeUrl(anchors)?.let { return@runCatching it }
+        }
+        null
+    }.getOrNull()
+
+    /** True when any node in [root]'s subtree carries a copy-ish label. Bounded by [MAX_TREE_NODES]. */
+    private fun subtreeLooksLikeACopyAction(root: AccessibilityNodeInfo): Boolean {
+        var visited = 0
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
+            val node = queue.removeFirst()
+            visited++
+            if (looksLikeACopyLabel(node.text?.toString())) return true
+            if (looksLikeACopyLabel(node.contentDescription?.toString())) return true
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let { queue.add(it) }
+            }
+        }
+        return false
+    }
+
+    /** The first actionable URL in [root]'s subtree, or null. Bounded by [MAX_TREE_NODES]. */
+    private fun subtreeUrl(root: AccessibilityNodeInfo): String? {
+        var visited = 0
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
+            val node = queue.removeFirst()
+            visited++
+            UrlTextExtractor.firstActionableUrl(node.text?.toString())?.let { return it }
+            UrlTextExtractor.firstActionableUrl(node.contentDescription?.toString())?.let { return it }
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let { queue.add(it) }
+            }
+        }
+        return null
+    }
+
+    /** True when [value] names a copy or link action rather than ordinary content. */
+    private fun looksLikeACopyLabel(value: String?): Boolean {
+        val text = value?.trim()?.lowercase() ?: return false
+        if (text.isEmpty() || text.length > MAX_COPY_LABEL_LENGTH) return false
+        return COPY_ACTION_WORDS.any { it in text }
+    }
+
+    /**
      * The currently selected text, read from the window's node tree.
      *
-     * This is the third and last channel for a copy that reports nothing. Measured on the OPPO:
-     *
-     *  - the **event stream** carries no link for Brave or WhatsApp (`TEST_REPORT.md` §49);
-     *  - the **clipboard** is refused to a background reader even with an accessibility service
-     *    (`clipboard probe at connect: readable=false`), so it is not a fallback at all.
-     *
-     * The service does declare `canRetrieveWindowContent`, so the window tree is still readable. A text
-     * view reports its selection through [AccessibilityNodeInfo.getTextSelectionStart] and
-     * [AccessibilityNodeInfo.getTextSelectionEnd] over its own text, which is how the selected link can
-     * be recovered even when the event does not mention it.
-     *
-     * Bounded on purpose: the walk stops at [MAX_SELECTED_TEXT] characters of any single node's text and
-     * visits at most [MAX_TREE_NODES] nodes, so a large page cannot turn this into an expensive
-     * main-thread traversal. Returns null whenever anything is missing, which leaves detection exactly
-     * as it was before this method existed.
+     * Kept alongside [clickContextUrl] because a selection is still the most precise signal when a
+     * platform does report one; several apps do.
      */
     private fun selectedTextFromWindow(): String? = runCatching {
         val root = rootInActiveWindow ?: return@runCatching null
@@ -563,5 +666,14 @@ class LinksiAccessibilityService : AccessibilityService() {
 
         /** A node's text longer than this is page content, not a selectable link. */
         private const val MAX_SELECTED_TEXT = 4096
+
+        /** How far up from a clicked node to look for the menu that contains it. */
+        private const val MAX_ANCESTOR_HOPS = 6
+
+        /** A label longer than this is prose, not a control name. */
+        private const val MAX_COPY_LABEL_LENGTH = 120
+
+        /** Words that mark a node as a copy affordance rather than content. */
+        private val COPY_ACTION_WORDS = listOf("copy", "link", "clipboard")
     }
 }
