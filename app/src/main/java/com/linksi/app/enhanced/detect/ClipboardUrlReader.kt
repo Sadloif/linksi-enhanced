@@ -85,6 +85,30 @@ object ClipboardUrlReader {
     }
 
     /**
+     * Reads the clipboard from the accessibility service, which cannot prove window focus.
+     *
+     * This exists because of a measured field failure: when a user selects a link in Brave and taps
+     * **Copy**, the platform delivers a selection change and a click that contain **no text at all**
+     * (`TEST_REPORT.md` §49). No event-based rule can recover a URL that the events do not carry, so
+     * the clipboard - which is where the copy actually lands - is the only source of truth.
+     *
+     * The privacy position is deliberately narrower than it looks:
+     *
+     *  - it is called **only** in direct response to a copy-shaped interaction (a selection followed by
+     *    a click in the same app) and only when the user has switched detection on;
+     *  - the result is compared against the clipboard as it was before that interaction, so a stale
+     *    clip cannot masquerade as a fresh copy;
+     *  - only an actionable HTTP(S) URL can leave this method, exactly as for the focused read;
+     *  - nothing is logged, cached or stored by this class, and no release build logs the outcome.
+     *
+     * It returns [ClipboardReadResult] with `readable = false` when the platform refuses the read, which
+     * is the case a device must be asked about rather than assumed. Callers treat that exactly like
+     * "nothing was found".
+     */
+    fun readFromService(context: Context): ClipboardReadResult =
+        runCatching { readUnsafe(context.applicationContext) }.getOrDefault(EMPTY)
+
+    /**
      * The only place the platform clipboard is touched. The clip is reduced to the first
      * actionable URL and then dropped: nothing else is retained.
      */

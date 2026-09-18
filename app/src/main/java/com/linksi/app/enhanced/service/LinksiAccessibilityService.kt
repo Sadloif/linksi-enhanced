@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.linksi.app.enhanced.EnhancedPreferenceKeys
 import com.linksi.app.BuildConfig
+import com.linksi.app.enhanced.detect.ClipboardUrlReader
 import com.linksi.app.enhanced.detect.CopyDetection
 import com.linksi.app.enhanced.detect.CopyEventInput
 import com.linksi.app.enhanced.detect.CopyEventType
@@ -87,6 +88,19 @@ class LinksiAccessibilityService : AccessibilityService() {
     @Volatile
     private var recentSelection: RecentSelection? = null
 
+    /** When the last text selection with no link in it happened, for the clipboard fallback. */
+    @Volatile
+    private var selectionAtMs: Long = 0
+
+    /**
+     * What the clipboard held when the last selection began.
+     *
+     * The clipboard fallback compares against this so that a link copied *earlier* - which is still
+     * sitting on the clipboard - cannot be reported as the copy the user just made.
+     */
+    @Volatile
+    private var clipboardBeforeCopy: String? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // The configuration lives in res/xml/accessibility_service_config.xml. An OEM or a user can
@@ -131,6 +145,14 @@ class LinksiAccessibilityService : AccessibilityService() {
             val selectionInput = readEvent(event)
             val selected = UrlTextExtractor.firstActionableUrl(selectionInput?.text)
                 ?: UrlTextExtractor.firstActionableUrl(selectionInput?.contentDescription)
+
+            // The clipboard as it stands *before* this interaction, so a clip that has not changed
+            // cannot be mistaken for a fresh copy. Read best-effort: the platform may refuse a
+            // background read, in which case this stays null and the comparison simply never matches.
+            clipboardBeforeCopy = runCatching {
+                ClipboardUrlReader.readFromService(this).url
+            }.getOrNull()
+
             if (selected != null) {
                 recentSelection = RecentSelection(selected, System.currentTimeMillis())
                 CopyObservationLog.record(
@@ -139,6 +161,9 @@ class LinksiAccessibilityService : AccessibilityService() {
                     )
                 )
             } else {
+                // Brave, WhatsApp and other WebView apps land here: they deliver the selection and the
+                // click but put no text in either, so the URL can only come from the clipboard.
+                selectionAtMs = System.currentTimeMillis()
                 CopyObservationLog.record(
                     CopyObservation(
                         System.currentTimeMillis(), type, packageName,
@@ -192,15 +217,55 @@ class LinksiAccessibilityService : AccessibilityService() {
                 )
             )
         )
-        if (detection !is CopyDetection.Detected) return
+        if (detection is CopyDetection.Detected) {
+            // Consume it: one selection may explain at most one copy, so a later unrelated click cannot
+            // reuse it.
+            recentSelection = null
+            lastForwardedAtMs = now
+            // The URL itself is deliberately not passed on: the bubble only signals "a link may be
+            // there", and the clipboard is read later from the foreground activity (section 11.1).
+            smartLinkDetector.onLikelyUrlCopied()
+            return
+        }
 
-        // Consume it: one selection may explain at most one copy, so a later unrelated click cannot
-        // reuse it.
-        recentSelection = null
-        lastForwardedAtMs = now
-        // The URL itself is deliberately not passed on: the bubble only signals "a link may be
-        // there", and the clipboard is read later from the foreground activity (section 11.1).
-        smartLinkDetector.onLikelyUrlCopied()
+        // ── Clipboard fallback ────────────────────────────────────────────────
+        // Measured on the OPPO: selecting a link in Brave and tapping Copy produces a selection change
+        // and a click that contain **no text at all**, so no event-based rule can recover the URL
+        // (TEST_REPORT.md section 49). The copy itself, however, has landed on the clipboard - which is
+        // the same source the working paste path uses.
+        //
+        // Narrow on purpose: it runs only for a click that follows a selection in the same app within a
+        // couple of seconds, and it only counts when the clipboard has actually *changed* to an
+        // actionable URL since that selection began. A link that was already on the clipboard therefore
+        // cannot be reported as a fresh copy.
+        if (type == CopyEventType.VIEW_CLICKED &&
+            !packageName.isNullOrBlank() &&
+            System.currentTimeMillis() - selectionAtMs in 1..COPY_FALLBACK_WINDOW_MS
+        ) {
+            val afterCopy = runCatching { ClipboardUrlReader.readFromService(this) }.getOrNull()
+            val copied = afterCopy?.url
+            // Debug builds only, and deliberately content-free: it says whether the platform let a
+            // background clipboard read happen at all, which is the one fact needed to decide whether
+            // this fallback can work on a given device. No URL and no clip text is ever logged.
+            if (BuildConfig.DEBUG) {
+                android.util.Log.i(
+                    TAG_DEBUG,
+                    "clipboard fallback: readable=${afterCopy?.readable == true} " +
+                        "foundUrl=${copied != null} changed=${copied != null && copied != clipboardBeforeCopy}"
+                )
+            }
+            if (copied != null && copied != clipboardBeforeCopy) {
+                CopyObservationLog.record(
+                    CopyObservation(
+                        System.currentTimeMillis(), type, packageName, CopyRejection.ACCEPTED
+                    )
+                )
+                selectionAtMs = 0
+                clipboardBeforeCopy = null
+                lastForwardedAtMs = now
+                smartLinkDetector.onLikelyUrlCopied()
+            }
+        }
     }
 
     override fun onInterrupt() {
@@ -381,5 +446,16 @@ class LinksiAccessibilityService : AccessibilityService() {
          * every event would be exactly the kind of high-frequency work sections 60 and 61 forbid.
          */
         private const val MAX_EVENT_TEXT_LENGTH = 4096
+
+        /**
+         * How long after a selection a click may still be the user's Copy.
+         *
+         * Long enough to cover a considered tap on the toolbar, short enough that an unrelated click
+         * later in the same app cannot reach the clipboard fallback.
+         */
+        private const val COPY_FALLBACK_WINDOW_MS = 3_000L
+
+        /** Debug-only log tag for the clipboard fallback; a release build never writes it. */
+        private const val TAG_DEBUG = "LinksiDetect"
     }
 }
