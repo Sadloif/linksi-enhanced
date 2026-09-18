@@ -3129,3 +3129,113 @@ Completing the objective is not the same as having no limits, and the honest qua
 - The licence question is unresolved by the owner's own direction (`LICENSE_REVIEW.md`).
 - Reminders are broken upstream; Room schema 12 has no migrations; MediaStore resume is deliberately
   not implemented.
+
+---
+
+## 47. Addendum 36 — the OPPO Reno (ColorOS 16, Android 16) field report
+
+### 47.1 Why this section exists
+
+The objective was complete and verified, but every device result until now came from a POCO X3 Pro
+(Android 13 / MIUI 14) or a throwaway emulator. The owner then ran the **signed release APK** on his own
+OPPO Reno (model `CPH2825`, ColorOS 16, **Android 16 / API 36**) and reported that link-copy detection
+and the floating bubble did nothing, with every permission he could find granted. This section is the
+first evidence from that device, and it changes two things: it identifies the cause, and it shows a real
+defect in how the feature is configured.
+
+### 47.2 Finding 1 — the accessibility service can be enabled without ever being bound
+
+```
+Enabled services:{{com.linksi.app/com.linksi.app.enhanced.service.LinksiAccessibilityService}, …}
+Bound services:{Service[label=Alarmy, …], Service[label=SwiftSlate Assistant, …],
+                Service[label=TogglDev, …]}          ← Linksi is absent
+Binding services:{}
+Crashed services:{}
+```
+
+The service was **enabled** and **not bound**, with no crash and nothing in logcat. In that state the
+service receives no events at all, so detection cannot fire no matter what the in-app switches say —
+and the app's own UI gave no indication.
+
+Re-writing the *same* `enabled_accessibility_services` value forced the platform to re-evaluate, and the
+service bound immediately:
+
+```
+Bound services:{… Service[label=Linksi link detection (optional), feedbackType[FEEDBACK_GENERIC],
+  capabilities=1, eventTypes=[TYPE_VIEW_CLICKED, TYPE_WINDOW_STATE_CHANGED,
+  TYPE_WINDOW_CONTENT_CHANGED, TYPE_VIEW_TEXT_SELECTION_CHANGED], notificationTimeout=100,
+  requestA11yBtn=false]}
+```
+
+This is the same class of trap already documented for MIUI (§39.4), but with two important differences:
+on ColorOS it happens **without** an `am force-stop`, and it is invisible because the accessibility
+service deliberately keeps no log (its own class comment: *"nothing is ever logged: this class contains
+no `Log` call at all"*). A privacy decision had made the feature undiagnosable in the field.
+
+### 47.3 Finding 2 — the switches cannot work independently, but the UI let them be set that way
+
+Reading the debug build's DataStore on the OPPO after first launch:
+
+```
+$ run-as com.linksi.app.debug cat files/datastore/linksi_settings.preferences_pb | hex
+ff fe 0d 00 0a 00 1e 00 … l.a.s.t._.a.p.p._.p.a.u.s.e._.t.i.m.e …
+```
+
+The only key present is the baseline `last_app_pause_time`. **No enhanced preference has ever been
+written**, so all three switches are at their `false` defaults:
+
+| Switch | Default | Needed for |
+|---|---|---|
+| `SMART_LINK_DETECTION` | `false` | detection **and** bubble |
+| `ACCESSIBILITY_ASSISTANCE` | `false` | detection **and** bubble |
+| `FLOATING_BUBBLE` | `false` | bubble only |
+
+Detection requires **two** (`SMART_LINK_DETECTION` **and** `ACCESSIBILITY_ASSISTANCE`), and the bubble
+requires **all three**. Nothing in the UI said so. A user who turns on the two that sound sufficient —
+and grants every permission the system offers — gets a feature that is silently inert, which is exactly
+the report that came back.
+
+### 47.4 The fixes
+
+**Switch dependencies are now enforced in the view model.** Enabling any one of the three enables the
+others it cannot work without, so the feature is never left half configured:
+
+| Turning on | Also turns on |
+|---|---|
+| Smart link detection | accessibility assistance |
+| Accessibility assistance | smart link detection |
+| Floating bubble | smart link detection **and** accessibility assistance |
+
+**The service state is now visible.** Enhanced features gained a *Link detection status* block that
+reports, from the platform rather than from a stored guess: whether the accessibility service is
+actually bound, whether the overlay permission is granted, whether notifications are granted, the state
+of each switch, and — the line that matters most — when a link copy was last observed and what was
+decided about it. The detector now records the observation time **before** consulting its gates, which
+is what separates "the service never saw your copy" from "it saw it and declined".
+
+That last distinction is the whole point: it is unobtainable from logs by design, so it has to be
+surfaced in the UI or not at all. Nothing in the new status reports *what* was copied, so the
+service's no-logging privacy promise is untouched.
+
+### 47.5 Verified on the OPPO
+
+| Check | Result |
+|---|---|
+| Service bound after re-enabling | **yes** — `Bound services` lists Linksi with all four event types |
+| Switches at default | **all three false** (proved from the DataStore, not inferred) |
+| Overlay permission | `SYSTEM_ALERT_WINDOW: allow` |
+| `POST_NOTIFICATIONS` | `granted=true` |
+| Release package | `com.linksi.app` vc23, `targetSdkVersion=36`, `lastUpdateTime=2026-09-18 11:12:07` |
+| Device | `CPH2825`, Android **16** (SDK 36), ColorOS 16 |
+
+### 47.6 Totals
+
+| Check | Result |
+|---|---|
+| New root causes identified on the owner's device | **2** — unbound service, and a three-switch gate with no UI guidance |
+| New instrumentation | detection-status block; switch dependency enforcement; last-copy timestamp |
+| Privacy impact | none — status reports gates, never content, and no log was added |
+
+The larger lesson, and the reason this took a field report to find: **the objective was verified on the
+wrong device.** Every gate passed on the POCO, and the feature did nothing on the phone the owner
+actually uses. Verification is only as good as the device it runs on.

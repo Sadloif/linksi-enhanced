@@ -27,6 +27,7 @@ import com.linksi.app.R
 import com.linksi.app.enhanced.download.rememberDownloadNotificationRequest
 import com.linksi.app.enhanced.media.ytdlp.YtDlpRefreshResult
 import com.linksi.app.enhanced.ui.DownloadUiEntryPoint
+import com.linksi.app.ui.components.DetectionStatusBlock
 import com.linksi.app.ui.components.ExpressiveSettingsCard
 import com.linksi.app.ui.components.IconContainer
 import kotlinx.coroutines.launch
@@ -137,6 +138,26 @@ fun EnhancedSettingsScreen(
                         onAccessibilityToggled(enabled)
                         if (enabled) openAccessibilitySettings(context)
                     }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // ── Detection status ───────────────────────────────────────────────
+            // Placed directly under the switches it explains. This is the answer to "I granted
+            // everything and nothing happens": the accessibility service can be *enabled* on some
+            // phones without ever being *bound*, and nothing else distinguishes that from a switch
+            // being off.
+            ExpressiveSettingsCard {
+                DetectionStatusBlock(
+                    detector = remember(context) {
+                        runCatching { entryPoint.smartLinkDetector() }.getOrNull()
+                    },
+                    smartDetectionOn = smartLinkDetection,
+                    bubbleOn = floatingBubble,
+                    accessibilityAssistanceOn = accessibilityAssistance,
+                    onOpenAccessibilitySettings = { openAccessibilitySettings(context) },
+                    onOpenOverlaySettings = { openOverlaySettings(context) }
                 )
             }
 

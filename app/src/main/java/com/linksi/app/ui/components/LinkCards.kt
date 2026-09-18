@@ -232,6 +232,43 @@ fun LinkCard(
                 )
 
                 Column(modifier = Modifier.padding(12.dp)) {
+                    // Thumbnail: the page's own preview image, when one was captured at save time.
+                    //
+                    // Until this existed the card showed only a 36 dp favicon, even though
+                    // `previewImageUrl` had been fetched and stored all along - so every list looked
+                    // like a wall of text with identical little icons. The image is the single
+                    // strongest visual cue that a link is worth opening, which is why it belongs on
+                    // the card and not only inside the edit sheet.
+                    //
+                    // The fallback chain is deliberate: preview image, then favicon on a tinted
+                    // square, and nothing at all when neither is available, so a card never shows a
+                    // broken-image placeholder.
+                    val previewModel = link.previewImageUrl.takeIf { it.isNotBlank() }
+                        ?: link.faviconUrl.takeIf { it.isNotBlank() }
+                    if (previewModel != null) {
+                        AsyncImage(
+                            model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                .data(previewModel)
+                                .diskCacheKey(previewModel)
+                                .memoryCacheKey(previewModel)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            // Crop rather than Fit: a preview image is decorative here and its
+                            // aspect ratio is unknown, so letterboxing would waste the card's
+                            // height and look like a rendering fault.
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+
                     // Top row: favicon + title + menu
                     Row(
                         modifier = Modifier.fillMaxWidth(),

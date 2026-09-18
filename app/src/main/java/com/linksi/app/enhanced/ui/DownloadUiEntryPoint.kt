@@ -12,6 +12,7 @@ import com.linksi.app.enhanced.download.DownloadRequest
 import com.linksi.app.enhanced.download.DownloadState
 import com.linksi.app.enhanced.download.DownloadWorkNaming
 import com.linksi.app.enhanced.media.ExtractorRegistry
+import com.linksi.app.enhanced.detect.SmartLinkDetector
 import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
@@ -61,6 +62,18 @@ interface DownloadUiEntryPoint {
      * able to see and act on rather than a hidden implementation detail.
      */
     fun ytDlpRuntime(): YtDlpRuntime
+
+    /**
+     * The smart-detection orchestrator, so Enhanced features can report whether detection is
+     * actually working.
+     *
+     * This exists because the accessibility service keeps **no log at all**, by documented privacy
+     * design, so when detection does not fire on a user's device there is nothing anywhere to read.
+     * The detector computes an exact reason for declining - each switch, the overlay permission, the
+     * rate limit - and holds it as state; exposing it is what turns a silent failure into a
+     * diagnosable one.
+     */
+    fun smartLinkDetector(): SmartLinkDetector
 
     companion object {
 

@@ -472,9 +472,21 @@ class SettingsViewModel @Inject constructor(
     // it: switching the bubble off actually stops the running service instead of only writing a value
     // the feature would notice later. SmartLinkDetector.setFloatingBubbleEnabled(false) calls
     // stopBubble() internally.
+    //
+    // Turning one of these on also turns on the others it needs, and this is not a convenience. The
+    // three switches are not independent: link detection needs *both* smart detection and
+    // accessibility assistance, and the bubble additionally needs the floating bubble switch. A user
+    // who enables the two that sound sufficient, grants every permission, and gets nothing has no way
+    // to discover which of the three they missed - and on a real device that is exactly what happened.
+    // A switch that cannot do anything on its own must not be settable on its own.
     fun setSmartLinkDetection(enabled: Boolean) {
         viewModelScope.launch {
             smartLinkDetector.setSmartDetectionEnabled(enabled)
+            // Detection is pointless without the accessibility service feeding it.
+            if (enabled && !_uiState.value.accessibilityAssistance) {
+                smartLinkDetector.setAccessibilityAssistanceEnabled(true)
+                _uiState.update { it.copy(accessibilityAssistance = true) }
+            }
             _uiState.update { it.copy(smartLinkDetection = enabled) }
         }
     }
@@ -482,6 +494,17 @@ class SettingsViewModel @Inject constructor(
     fun setFloatingBubble(enabled: Boolean) {
         viewModelScope.launch {
             smartLinkDetector.setFloatingBubbleEnabled(enabled)
+            // The bubble is what detection produces, so enabling it implies the other two.
+            if (enabled) {
+                if (!_uiState.value.smartLinkDetection) {
+                    smartLinkDetector.setSmartDetectionEnabled(true)
+                    _uiState.update { it.copy(smartLinkDetection = true) }
+                }
+                if (!_uiState.value.accessibilityAssistance) {
+                    smartLinkDetector.setAccessibilityAssistanceEnabled(true)
+                    _uiState.update { it.copy(accessibilityAssistance = true) }
+                }
+            }
             _uiState.update { it.copy(floatingBubble = enabled) }
         }
     }
@@ -489,6 +512,12 @@ class SettingsViewModel @Inject constructor(
     fun setAccessibilityAssistance(enabled: Boolean) {
         viewModelScope.launch {
             smartLinkDetector.setAccessibilityAssistanceEnabled(enabled)
+            // Enabling the service alone would still detect nothing; the detector switch is the
+            // other half, so turn it on too rather than leave a half-enabled feature.
+            if (enabled && !_uiState.value.smartLinkDetection) {
+                smartLinkDetector.setSmartDetectionEnabled(true)
+                _uiState.update { it.copy(smartLinkDetection = true) }
+            }
             _uiState.update { it.copy(accessibilityAssistance = enabled) }
         }
     }

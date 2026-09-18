@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.linksi.app.enhanced.EnhancedPreferenceKeys
 import com.linksi.app.enhanced.bubble.BubbleService
@@ -106,6 +107,15 @@ class SmartLinkDetector @Inject constructor(
     }
 
     private suspend fun handleLikelyCopy() {
+        // Record that a copy was seen at all, *before* the gates below decide whether to show
+        // anything. This is the difference between "the accessibility service never saw your copy"
+        // and "it saw it and declined", and without it a user on a device where detection does not
+        // work has no way to tell those apart - the service deliberately keeps no log.
+        val seenAt = System.currentTimeMillis()
+        runCatching {
+            context.dataStore.edit { it[longPreferencesKey(EnhancedPreferenceKeys.LAST_COPY_DETECTED_AT)] = seenAt }
+        }
+
         when (val decision = resolveRun()) {
             is RunDecision.Disabled -> {
                 _state.value = SmartDetectionState.Disabled(decision.reason)
@@ -128,6 +138,16 @@ class SmartLinkDetector @Inject constructor(
             }
         }
     }
+
+    /**
+     * When a likely link copy was last seen, or null if none has been since this was added.
+     *
+     * Surfaced in Enhanced features as plain evidence that detection is working, which is the one
+     * thing a user cannot otherwise observe.
+     */
+    suspend fun lastCopyDetectedAt(): Long? = runCatching {
+        context.dataStore.data.first()[longPreferencesKey(EnhancedPreferenceKeys.LAST_COPY_DETECTED_AT)]
+    }.getOrNull()
 
     /** True when a bubble was requested too recently; see [MIN_INTERVAL_BETWEEN_BUBBLES_MS]. */
     private fun isRateLimited(): Boolean {

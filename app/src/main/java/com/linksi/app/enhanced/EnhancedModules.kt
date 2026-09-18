@@ -58,6 +58,15 @@ object EnhancedPreferenceKeys {
     const val BUBBLE_POSITION = "bubble_position"
     const val BUBBLE_SIZE = "bubble_size"
     const val A11Y_IGNORED_PACKAGES = "a11y_ignored_packages"
+
+    /**
+     * Wall-clock time of the last likely link copy the accessibility service observed.
+     *
+     * Written *before* the enable/overlay gates are consulted, so it distinguishes "no copy was ever
+     * seen" from "a copy was seen and declined". Without it the two are indistinguishable to a user,
+     * because the accessibility service keeps no log by design.
+     */
+    const val LAST_COPY_DETECTED_AT = "last_copy_detected_at"
     const val DOWNLOAD_NOTIFICATIONS = "download_notifications"
     const val DOWNLOAD_DESTINATION = "download_destination"
     const val DOWNLOAD_ORGANIZE_BY_SOURCE = "download_organize_by_source"
