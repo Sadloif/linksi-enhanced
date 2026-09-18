@@ -1,10 +1,12 @@
 # Android 16: detecting a link copy made in another app — problem statement
 
-**Status:** unresolved at the platform level. Four channels investigated, all closed by measurement on a
-real device. This document exists so the problem can be researched independently without repeating the
-investigation.
+**Status:** partially answered. Two of the four channels are **closed by the platform** (event payload,
+clipboard). A third — Chromium's link metadata — is **proven reachable but not yet usable**, and §10
+records exactly why. This document exists so the remaining question can be researched without repeating
+the investigation.
 
-**Written:** 2026-09-18 · **App:** Linksi Enhanced `3.1.1-enhanced.3` (targetSdk 36)
+**Written:** 2026-09-18, **updated** after an external review returned the findings in §10
+**App:** Linksi Enhanced `3.1.1-enhanced.3` (targetSdk 36)
 **Device:** OPPO `CPH2825` (marketing name not verified — the device only reports the model number),
 ColorOS 16, **Android 16 / SDK 36**, arm64, not rooted
 **Relevant code:** `app/src/main/java/com/linksi/app/enhanced/service/LinksiAccessibilityService.kt`
@@ -176,3 +178,103 @@ clicked node's tree.
 device and one OS version. The most valuable outcome of further research would be either (a) a supported
 mechanism that was missed, or (b) authoritative confirmation that none exists, in which case the feature
 should be documented as best-effort and the share/paste paths promoted as the reliable route.
+
+---
+
+## 10. UPDATE — the external review's suggestions, tested on the device
+
+An external review identified two things this investigation had missed. **Both were correct, and both were
+then measured on the OPPO.** One produced a real mechanism; the other exposed an open problem.
+
+### 10.1 Confirmed: Chromium exposes link targets in node *extras*
+
+The review's key claim was that Chromium stores a link's destination under
+`AccessibilityNodeInfo.targetUrl` in the node's extras bundle, where `node.text` inspection cannot see it.
+**Confirmed.** A window dump taken while a Brave context menu was open:
+
+```
+WINDOWS[selection pkg=com.brave.browser] #2 type=1 active=true focused=true
+  WebView  extras=[…, AccessibilityNodeInfo.chromeRole, …]
+  View  desc="Brave logo" clickable=true
+      extras=[…, AccessibilityNodeInfo.targetUrl, …]  targetUrl=PRESENT(len=25)
+  Image desc="Brave logo"
+      extras=[…, AccessibilityNodeInfo.targetUrl, …]  targetUrl=PRESENT(len=88)
+```
+
+Two genuine hrefs (25 and 88 characters) that no amount of text inspection would ever have found. **The
+earlier conclusion that "the clicked node's tree contains no link" was therefore wrong** — it was a search
+through the wrong field.
+
+### 10.2 Confirmed: `getWindows()` is required, not `rootInActiveWindow`
+
+The review predicted the context menu would be a **separate `AccessibilityWindowInfo`**. The dump supports
+this, and it caught the same mistake made twice in this investigation:
+
+- the dump that **found** `targetUrl` used `AccessibilityService.getWindows()`;
+- the search that followed used `rootInActiveWindow` — and reported `no targetUrl extras found` while the
+  dump in the very same run was printing them.
+
+Also confirmed as a real config gap: `flagRetrieveInteractiveWindows` is documented as requiring
+`typeWindowsChanged`, which this service **never subscribed to**, even though it set the flag. Fixed.
+
+Node budget also had to rise from 400 to 3000: the WebView sits deep inside Chromium's view hierarchy, so
+400 nodes was exhausted before reaching page content.
+
+### 10.3 NOT solved: which link was pressed
+
+This is the open problem, and it is why the mechanism is not yet a working feature. When the scan did find
+links, it found **fifteen** of them on one page:
+
+```
+scan: windows=4 visited=262 nodes, targetUrl nodes=15, touch=false
+```
+
+`touch=false` means the long-press event carried **no bounds**, so there was no touch point to match
+against. With fifteen candidates and three ranking strategies (touch containment, live selection, "only
+one candidate"), none applied, so the code correctly **declined to guess** rather than offer a wrong link.
+
+Two further complications measured:
+
+- the `targetUrl` extras are populated **inconsistently** between runs — sometimes 15 nodes, sometimes the
+  whole tree is 39 nodes with none (`no targetUrl extras found`);
+- the long-press must be on the correct element to produce them at all.
+
+### 10.4 The review's answers that change the design
+
+| Question | Answer | Consequence |
+|---|---|---|
+| Background clipboard read for an accessibility service? | **No.** CTS requires `READ_CLIPBOARD_IN_BACKGROUND`, available only to privileged system apps | The clipboard fallback is permanently dead; the code comment now says so |
+| Can `getTextSelectionStart/End` recover text absent from the node? | **No.** They are offsets into that node's existing text | A dead end, not a bug |
+| Have shipping apps solved this? | Only via IME, temporary focus, Shizuku/ADB, root, or explicit handoff. Retrace reportedly uses "display over other apps" to **briefly take focus** and then read the clipboard | **A genuine alternative this app has not tried** — see §10.5 |
+| Does stock Android differ from ColorOS? | The clipboard rule is platform-wide; OEMs differ mainly in the accessibility observation layer | Testing on a Pixel would test the observation layer, not the clipboard rule |
+
+### 10.5 The one mechanism still untried, and its cost
+
+The review notes that Retrace appears to combine an accessibility *signal* with a **brief, focusable
+overlay window** in order to satisfy the ordinary "currently has focus" clipboard condition.
+
+This app already has `SYSTEM_ALERT_WINDOW`. Theoretically it could, on a copy-shaped signal, show a
+tiny focusable overlay for a few milliseconds, read the clipboard legitimately, and dismiss it.
+
+Two honest objections, which is why it has not been implemented:
+
+1. **It steals input focus.** Taking focus mid-interaction can dismiss the very context menu whose Copy
+   the user was reaching for, and could disturb typing. That makes it a race against the user.
+2. **It is a focus-stealing trick to obtain data the platform deliberately restricts.** Even where it
+   technically satisfies the letter of the rule, it is against the spirit of the Android 10 change, and it
+   would be hard to describe honestly in a privacy disclosure.
+
+It is recorded here so the decision is visible rather than silently avoided. It is the last known option.
+
+### 10.6 Recommended position
+
+Given the above, the defensible product decision is:
+
+- **Share to Linksi** — primary, fully supported, already implemented.
+- **`ACTION_PROCESS_TEXT`** — additional route for selectable text, verified working on this device.
+- **Paste inside Linksi** — verified working.
+- **Accessibility detection** — best-effort convenience, documented as such in the app itself, rather than
+  presented as a guarantee.
+
+A correct assessment of the feature is that Linksi notices *many* copy actions, not all, and that Android
+does not inform an app of every one. That should be said in the UI so the feature never looks broken.
