@@ -29,12 +29,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.linksi.app.enhanced.detect.CopyObservation
+import com.linksi.app.enhanced.detect.CopyObservationLog
+import com.linksi.app.enhanced.detect.CopyRejection
 import com.linksi.app.enhanced.detect.SmartDetectionState
 import com.linksi.app.enhanced.detect.SmartLinkDetector
 import com.linksi.app.enhanced.service.LinksiAccessibilityService
@@ -218,6 +222,40 @@ fun DetectionStatusBlock(
             color = MaterialTheme.colorScheme.onSurface
         )
 
+        // ── Recent events, as content-free codes ──────────────────────────────
+        // This is the part that answers "I copied a link in Chrome and nothing happened": it lists
+        // what the service actually judged, and which rule rejected it. No text and no URL is shown,
+        // because none is retained - only the event kind, the app it came from, and the verdict.
+        val observations by CopyObservationLog.recent.collectAsStateWithLifecycle()
+        Spacer(Modifier.height(10.dp))
+        if (observations.isNotEmpty()) {
+            Text(
+                text = "Recent copy events seen",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            observations.reversed().forEach { observation ->
+                Text(
+                    text = describeObservation(observation),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (observation.rejection == CopyRejection.ACCEPTED) {
+                        Color(0xFF22C55E)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            TextButton(onClick = { CopyObservationLog.clear() }) { Text("Clear this list") }
+        } else {
+            Text(
+                text = "No accessibility events have been seen yet. If you have copied a link since " +
+                    "switching this on, the service is not receiving events at all.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         if (serviceMissing) {
             TextButton(onClick = onOpenAccessibilitySettings) { Text("Open accessibility settings") }
         }
@@ -225,6 +263,33 @@ fun DetectionStatusBlock(
             TextButton(onClick = onOpenOverlaySettings) { Text("Open overlay permission") }
         }
     }
+}
+
+/**
+ * One observed event as a readable line: when, what kind, from which app, and the verdict.
+ *
+ * Separate from the composable so the wording can be tested without a device.
+ */
+internal fun describeObservation(
+    observation: CopyObservation,
+    now: Long = System.currentTimeMillis()
+): String {
+    val ago = DateUtils.getRelativeTimeSpanString(
+        observation.atMs,
+        now,
+        DateUtils.SECOND_IN_MILLIS,
+        DateUtils.FORMAT_ABBREV_RELATIVE
+    )
+    val app = observation.packageName?.substringAfterLast('.') ?: "unknown app"
+    val verdict = when (observation.rejection) {
+        CopyRejection.ACCEPTED -> "accepted - bubble requested"
+        CopyRejection.NO_COPY_SIGNAL -> "ignored: no copy/link label and not a URL selection"
+        CopyRejection.NO_URL -> "copy seen but no usable link in the event"
+        CopyRejection.PASSWORD_OR_SENSITIVE -> "refused: password or sensitive field"
+        CopyRejection.IGNORED_PACKAGE -> "refused: app is on your ignore list"
+        CopyRejection.NO_TEXT -> "ignored: the event carried no text"
+    }
+    return "$ago  $app  ${observation.eventType.name.lowercase()}  ->  $verdict"
 }
 
 /**

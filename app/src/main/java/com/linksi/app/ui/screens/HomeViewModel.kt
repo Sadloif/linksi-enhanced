@@ -90,9 +90,14 @@ class HomeViewModel @Inject constructor(
                         sortOption = prefs[HOME_SORT_OPTION]?.let {
                             runCatching { SortOption.valueOf(it) }.getOrNull()
                         } ?: SortOption.DATE_NEWEST,
+                        // Grid by default, because it is the only view that shows the saved preview
+                        // image. A list mode that renders a 36 dp favicon per row makes a library of
+                        // links look like undifferentiated text, which is what the owner reported
+                        // ("no previews, I am seeing only links, no thumbnails"). A user who prefers
+                        // rows can still switch, and that choice is persisted below.
                         homeViewMode = prefs[HOME_VIEW_MODE]?.let {
                             runCatching { ViewMode.valueOf(it) }.getOrNull()
-                        } ?: ViewMode.LIST,
+                        } ?: ViewMode.GRID,
                         folderViewMode = prefs[FOLDER_VIEW_MODE]?.let {
                             FolderViewMode.valueOf(it)
                         } ?: FolderViewMode.LIST,

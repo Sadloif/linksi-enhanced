@@ -365,4 +365,112 @@ class LikelyCopyDetectorTest {
         val input = click(text = "Copy link https://example.com/a", packageName = null)
         assertTrue(detection(input, listOf("com.bank.app")) is CopyDetection.Detected)
     }
+
+    // ── The browser "Copy link address" case (found on the OPPO) ──────────────
+
+    /**
+     * The real-world case that failed on the owner's phone: the menu item is labelled with the **link
+     * itself** rather than the words "Copy link", so a rule that demanded a copy word in the node's
+     * text rejected it. Detection worked for an in-app paste and did nothing for an external copy.
+     *
+     * The URL arrives in the event's text and the label says "copy", which is what the platform
+     * exposes for this control.
+     */
+    @Test
+    fun aClickLabelledCopyWithTheUrlInTheEventIsDetected() {
+        val input = CopyEventInput(
+            eventType = CopyEventType.VIEW_CLICKED,
+            text = "https://example.com/a",
+            contentDescription = "Copy link address",
+            packageName = "com.android.chrome"
+        )
+        val result = detection(input)
+        assertTrue("expected a detection, got $result", result is CopyDetection.Detected)
+        assertEquals("https://example.com/a", (result as CopyDetection.Detected).url)
+    }
+
+    /** The label may be on the text while the description carries the link; either way it is a copy. */
+    @Test
+    fun aClickWhoseDescriptionCarriesTheLinkIsAlsoDetected() {
+        val input = CopyEventInput(
+            eventType = CopyEventType.VIEW_CLICKED,
+            text = "Copy link",
+            contentDescription = "https://example.com/b",
+            packageName = "com.android.chrome"
+        )
+        val result = detection(input)
+        assertTrue("expected a detection, got $result", result is CopyDetection.Detected)
+        assertEquals("https://example.com/b", (result as CopyDetection.Detected).url)
+    }
+
+    /**
+     * The property the new signal must not break: a click on a plain text field that happens to hold
+     * a URL is not a copy, because nothing about the control says "copy".
+     */
+    @Test
+    fun aUrlInAPlainTextFieldIsStillIgnoredEvenWhenClicked() {
+        assertEquals(CopyDetection.NO_COPY_SIGNAL, detection(click(text = "https://example.com/a")))
+        assertEquals(
+            CopyDetection.NO_COPY_SIGNAL,
+            detection(click(text = "https://example.com/a", description = "Search"))
+        )
+    }
+
+    /**
+     * A label carrying a copy word but no URL anywhere is a copy signal with nothing to act on, so the
+     * verdict is `NO_URL` rather than `NO_COPY_SIGNAL`. Either way **no bubble is shown**, which is the
+     * property that matters; the distinction is only which rule declined, and `NO_URL` is the honest
+     * description of "we thought you copied, but there was no link in the event".
+     */
+    @Test
+    fun aCopyLabelWithNoUrlAtAllYieldsNoUrl() {
+        assertEquals(
+            CopyDetection.NO_URL,
+            detection(click(description = "Copy link address"))
+        )
+    }
+
+    /**
+     * A paragraph that merely contains the word "link" must not count as a control label, or any page
+     * text mentioning links would arm the bubble.
+     */
+    @Test
+    fun aLongProseLabelContainingTheWordLinkIsNotACopyControl() {
+        val prose = "This page explains how to link your account, see the link below for details " +
+            "about linking and unlinking, and follow the link to continue reading https://example.com/a"
+        assertEquals(CopyDetection.NO_COPY_SIGNAL, detection(click(text = prose)))
+    }
+
+    /**
+     * The weaker signals only count on a click. A page that merely *mentions* links must not arm the
+     * bubble just because a content or window change carried a URL - that is navigation, not a copy.
+     *
+     * An exact label such as "Copy link address" is a different matter and is accepted on any event
+     * type, because those words cannot plausibly be page content.
+     */
+    @Test
+    fun proseMentioningCopyOrLinkOnlyCountsOnAClick() {
+        val prose = "Read this article to link your account https://example.com/a"
+        assertEquals(
+            CopyDetection.NO_COPY_SIGNAL,
+            detection(
+                CopyEventInput(
+                    eventType = CopyEventType.WINDOW_STATE_CHANGED,
+                    text = prose,
+                    packageName = "com.example.reader"
+                )
+            )
+        )
+        assertEquals(
+            CopyDetection.NO_COPY_SIGNAL,
+            detection(
+                CopyEventInput(
+                    eventType = CopyEventType.WINDOW_CONTENT_CHANGED,
+                    contentDescription = "link",
+                    text = "https://example.com/a",
+                    packageName = "com.example.reader"
+                )
+            )
+        )
+    }
 }

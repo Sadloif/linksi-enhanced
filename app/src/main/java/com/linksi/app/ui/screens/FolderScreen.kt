@@ -56,8 +56,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -944,7 +942,8 @@ fun FolderDetailScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    val gridState = rememberLazyStaggeredGridState()
+    // Uniform grid, to match LinksGrid: every card has a fixed-height thumbnail now.
+    val gridState = rememberLazyGridState()
     val viewMode = state.folderLinksViewMode
 
     LaunchedEffect(state.snackbarMessage) {
@@ -1452,7 +1451,9 @@ fun FolderDetailScreen(
                             folderLockEnabled = state.folderLockEnabled,
                             isRefreshingMetadata = state.isRefreshingMetadata,
                             header = {
-                                item(span = StaggeredGridItemSpan.FullLine) { headerContent() }
+                                // Full-width row in a uniform grid, rather than the staggered
+                                // `FullLine` span this used to be.
+                                item(span = { GridItemSpan(maxLineSpan) }) { headerContent() }
                             }
                         )
                     }

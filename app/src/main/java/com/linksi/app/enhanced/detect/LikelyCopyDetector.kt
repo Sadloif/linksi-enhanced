@@ -109,12 +109,64 @@ object LikelyCopyDetector {
             input.text.length <= MAX_SELECTION_LENGTH
     }
 
-    /** True when the node's own label or text carries an explicit copy or link word. */
+    /**
+     * True when a click landed on a copy-ish **action** while the event also carries a URL.
+     *
+     * This is the signal that was missing in the field. On a real device the common external copy is
+     * the browser's "Copy link address", and browsers vary in what they expose to accessibility for
+     * that menu item: the node's own text is often the *link* rather than the words "Copy link", so
+     * requiring a copy label on the node's text - which the original rule did - rejected the most
+     * common real copy, on a device where the in-app paste path worked fine.
+     *
+     * Narrow in three places, each of which a test pins:
+     *
+     *  - the event must be a **click**;
+     *  - the **control name** - the content description, or a short text - must carry a copy word, so
+     *    a click on a link, and typing a URL into a search box, are still ignored;
+     *  - and an actionable URL must be present **somewhere in the event**, which is where the link
+     *    itself lives when the browser names the menu item after it.
+     *
+     * To insist that the URL be "linked", not merely a bare host, an actionable URL must be
+     * *present*; [CopyDetection.Detected] is only returned when one can be extracted.
+     */
+    private fun clickLabelledAsACopyAction(input: CopyEventInput): Boolean {
+        if (input.eventType != CopyEventType.VIEW_CLICKED) return false
+        if (!hasExplicitCopyWord(input.contentDescription) && !hasExplicitCopyWord(input.text)) return false
+        return urlSource(input) != null
+    }
+
+    /**
+     * True when [value] names a copy-ish action.
+     *
+     * Bounded by [MAX_COPY_LABEL_LENGTH] so a paragraph that merely contains the word "link" is prose
+     * rather than a control name, which is what stops odd prose from arming the bubble.
+     */
+    private fun hasExplicitCopyWord(value: String?): Boolean {
+        val trimmed = value?.trim()?.lowercase() ?: return false
+        if (trimmed.isEmpty() || trimmed.length > MAX_COPY_LABEL_LENGTH) return false
+        if (matchesExplicitCopyLabel(trimmed)) return true
+        return COPY_SIGNAL_WORDS.any { it in trimmed }
+    }
+
+    /**
+     * True when the node carries an explicit copy signal.
+     *
+     * An exact copy label is unambiguous whichever field carries it - "copy link address" is a control
+     * name, never page copy - so that case is accepted directly.
+     *
+     * Everything weaker than that can appear in ordinary page content, so it only counts on a
+     * **click**. Without that restriction a content-changed or window-state-changed event carrying a
+     * URL would arm the bubble simply because the page happened to mention "copy" or "link" somewhere:
+     * navigation is not a copy. This is what `theNewSignalAppliesOnlyToClicks` pins.
+     */
     private fun hasCopySignal(input: CopyEventInput): Boolean {
-        val text = input.text?.lowercase().orEmpty()
         val description = input.contentDescription?.lowercase().orEmpty()
-        if (matchesExplicitCopyLabel(text) || matchesExplicitCopyLabel(description)) return true
-        return COPY_SIGNAL_WORDS.any { it in text || it in description }
+        val text = input.text?.lowercase().orEmpty()
+        if (matchesExplicitCopyLabel(description) || matchesExplicitCopyLabel(text)) return true
+
+        if (input.eventType != CopyEventType.VIEW_CLICKED) return false
+
+        return COPY_SIGNAL_WORDS.any { it in description } || clickLabelledAsACopyAction(input)
     }
 
     private fun matchesExplicitCopyLabel(value: String): Boolean {
@@ -143,6 +195,42 @@ object LikelyCopyDetector {
 
     /** Selections longer than this are treated as a document, not as "the user copied this link". */
     private const val MAX_SELECTION_LENGTH = 4096
+
+    /**
+     * A node label longer than this is prose, not a control name.
+     *
+     * Keeps [hasExplicitCopyWord] from accepting a paragraph that happens to contain the word "link".
+     */
+    private const val MAX_COPY_LABEL_LENGTH = 120
+
+    /**
+     * [detect], plus the reason for its verdict.
+     *
+     * Kept as a separate entry point so the phone-hot [detect] path is unchanged and the extra value is
+     * only produced where someone is actually going to look at it. Returns the same [CopyDetection] the
+     * other overload would, so the two can never disagree.
+     */
+    fun detectWithReason(
+        input: CopyEventInput?,
+        ignoredPackages: Collection<String> = emptyList()
+    ): Pair<CopyDetection, CopyRejection> {
+        if (input == null) return CopyDetection.NO_COPY_SIGNAL to CopyRejection.NO_TEXT
+
+        if (input.isPassword || input.isSensitiveField) {
+            return CopyDetection.PASSWORD_FIELD to CopyRejection.PASSWORD_OR_SENSITIVE
+        }
+        if (isIgnoredPackage(input.packageName, ignoredPackages)) {
+            return CopyDetection.IGNORED_PACKAGE to CopyRejection.IGNORED_PACKAGE
+        }
+        val copySignal = hasCopySignal(input) || looksLikeSelectionToolbarAction(input)
+        if (!copySignal) return CopyDetection.NO_COPY_SIGNAL to CopyRejection.NO_COPY_SIGNAL
+
+        val source = urlSource(input) ?: return CopyDetection.NO_URL to CopyRejection.NO_URL
+        val url = source.firstActionableUrl() ?: return CopyDetection.NO_URL to CopyRejection.NO_URL
+
+        return CopyDetection.Detected(url = url, textWasUrl = source.trim() == url) to
+            CopyRejection.ACCEPTED
+    }
 }
 
 /**
@@ -157,6 +245,40 @@ enum class CopyEventType {
     WINDOW_STATE_CHANGED,
     OTHER
 }
+
+/**
+ * Why one accessibility event was or was not accepted, as a code with no content.
+ *
+ * This exists so the *reason* a real copy was ignored can be shown to the user without recording the
+ * copied text. Nothing here carries the event's text - only which rule decided, plus the event type and
+ * package. That is what makes a field failure diagnosable on a device whose accessibility service
+ * deliberately keeps no log at all.
+ */
+enum class CopyRejection {
+    /** A likely copy of an actionable URL; a bubble was requested. */
+    ACCEPTED,
+    /** A password or otherwise sensitive node, refused before its text was read. */
+    PASSWORD_OR_SENSITIVE,
+    /** The package is on the user's ignore list. */
+    IGNORED_PACKAGE,
+    /** Nothing about the event suggested a copy: no "copy"/"link" label, and not a URL selection. */
+    NO_COPY_SIGNAL,
+    /** A copy was likely, but the event carried no actionable HTTP(S) URL. */
+    NO_URL,
+    /** The node had no text or label at all, so there was nothing to judge. */
+    NO_TEXT,
+}
+
+/**
+ * One observed event, reduced to what is safe and useful to show: when, what kind, from which app, and
+ * the verdict. Deliberately no text, no URL and no content description.
+ */
+data class CopyObservation(
+    val atMs: Long,
+    val eventType: CopyEventType,
+    val packageName: String?,
+    val rejection: CopyRejection
+)
 
 /**
  * Everything the heuristic is allowed to know about one accessibility event.

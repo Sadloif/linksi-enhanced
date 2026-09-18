@@ -629,7 +629,7 @@ fun LinkGridCard(
                                 .crossfade(true)
                                 .build(),
                             contentDescription = null,
-                            modifier = Modifier.fillMaxWidth().height(120.dp),
+                            modifier = Modifier.fillMaxWidth().height(150.dp),
                             contentScale = ContentScale.Crop,
                             onError = { imageLoadFailed = true }
                         )

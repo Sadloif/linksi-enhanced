@@ -11,13 +11,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
-import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -85,7 +84,7 @@ fun HomeScreen(
     val screenHeightPx = LocalConfiguration.current.screenHeightDp.toFloat()
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    val gridState = rememberLazyStaggeredGridState()
+    val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
 
     // The Downloads deep link opens Settings, which then shows its Downloads overlay. Guarded so
@@ -891,7 +890,7 @@ fun LinksList(
 @Composable
 fun LinksGrid(
     links: List<Link>,
-    gridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
+    gridState: LazyGridState = rememberLazyGridState(),
     folders: List<Folder>,
     selectedIds: Set<Long>,
     isSelectionMode: Boolean,
@@ -913,14 +912,17 @@ fun LinksGrid(
     onCreateFolder: (String, String, String) -> Unit = { _, _, _ -> },
     folderLockEnabled: Boolean = false,
     isRefreshingMetadata: Boolean = false,
-    header: (LazyStaggeredGridScope.() -> Unit)? = null
+    header: (LazyGridScope.() -> Unit)? = null
 ) {
-    LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Fixed(2),
+    // A uniform 2-column grid rather than a staggered one. Every card now carries a fixed-height
+    // thumbnail, so staggering bought nothing except ragged rows - and a library of links reads far
+    // better as an even grid, which is what the owner asked for ("arrange them 2x2 grid").
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
         state = gridState,
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalItemSpacing = 8.dp
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         header?.invoke(this)
         items(links, key = { it.id }) { link ->

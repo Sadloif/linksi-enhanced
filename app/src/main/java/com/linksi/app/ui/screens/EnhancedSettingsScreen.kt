@@ -143,6 +143,43 @@ fun EnhancedSettingsScreen(
 
             Spacer(Modifier.height(12.dp))
 
+            // ── One-tap enable ─────────────────────────────────────────────────
+            // The three switches below are individually correct and collectively confusing: detection
+            // needs two of them and the bubble needs all three, which is not guessable. This offers
+            // the whole working configuration in one action, while leaving each switch available for
+            // anyone who wants to fine-tune. Shown only while something is still missing, so it does
+            // not nag a user who is already set up.
+            val detectionFullyOn = smartLinkDetection && accessibilityAssistance && floatingBubble
+            if (!detectionFullyOn) {
+                ExpressiveSettingsCard {
+                    TextButton(
+                        onClick = {
+                            if (!smartLinkDetection) onSmartLinkDetectionToggled(true)
+                            if (!accessibilityAssistance) onAccessibilityToggled(true)
+                            if (!floatingBubble) onFloatingBubbleToggled(true)
+                            // The overlay permission is a system dialog, not a switch, so ask for it
+                            // here rather than leaving the last gate hidden.
+                            if (!canDrawOverlays(context)) openOverlaySettings(context)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Turn on link detection",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                    Text(
+                        text = "Enables smart detection, accessibility assistance and the floating " +
+                            "bubble together, then asks for the overlay permission. All three are " +
+                            "required for the bubble to appear.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 10.dp)
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
             // ── Detection status ───────────────────────────────────────────────
             // Placed directly under the switches it explains. This is the answer to "I granted
             // everything and nothing happens": the accessibility service can be *enabled* on some

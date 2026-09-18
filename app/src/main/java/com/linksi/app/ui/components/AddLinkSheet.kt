@@ -65,6 +65,11 @@ fun AddLinkSheet(
     onDismiss: () -> Unit,
     onCreateFolder: (String, String, String) -> Unit = { _, _, _ -> },
     folderLockEnabled: Boolean = false,
+    /**
+     * Opens Enhanced features. Defaulted so every existing caller keeps compiling, but the sheet is
+     * now one of the two places the enhanced actions are reachable from, so callers should wire it.
+     */
+    onOpenEnhancedSettings: () -> Unit = {},
     onConfirm: (
         url: String,
         folderId: Long?,
@@ -616,6 +621,25 @@ fun AddLinkSheet(
                         }
                     }
                 }
+
+                // ── Enhanced actions ──────────────────────────
+                // Offered here, in the flow where a link is actually being added, rather than only
+                // behind Settings. Cleaning rewrites the field in place; Download hands the URL to the
+                // quick action panel, which is where the extractor runs and formats appear.
+                Spacer(Modifier.height(8.dp))
+                EnhancedLinkActions(
+                    url = url,
+                    onCleanedUrl = { cleaned ->
+                        url = cleaned
+                        // The cleaned URL is a different link, so the metadata already fetched for
+                        // the uncleaned one is stale: clear the marker so it is refetched.
+                        if (cleaned != lastFetchedUrl) lastFetchedUrl = ""
+                    },
+                    onOpenEnhancedSettings = {
+                        onDismiss()
+                        onOpenEnhancedSettings()
+                    }
+                )
 
                 // ── Fetching indicator ────────────────────────
                 AnimatedVisibility(visible = isFetchingMetadata || isFetchingPreview) {

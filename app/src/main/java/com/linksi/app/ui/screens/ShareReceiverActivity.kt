@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.linksi.app.R
+import com.linksi.app.MainActivity
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.linksi.app.ui.components.*
@@ -67,12 +68,22 @@ class ShareReceiverActivity : AppCompatActivity() {
         setContent {
             LinksTheme {
                 ShareReceiverSheet(
-                    url = sharedData.url,
+                    initialUrl = sharedData.url,
                     initialTitle = sharedData.title,
                     initialImageUrl = sharedData.imageUrl,
                     viewModel = viewModel,
                     onDismiss = { finish() },
-                    onSaved = { finish() }
+                    onSaved = { finish() },
+                    // The share screen is transient and already holds the link, so "Settings" hands
+                    // off to the main app's Enhanced features rather than stacking here. The share
+                    // sheet closes; Android keeps the share intent if the user comes back.
+                    onOpenEnhancedSettings = {
+                        startActivity(
+                            Intent(this, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        finish()
+                    }
                 )
             }
         }
@@ -120,15 +131,23 @@ class ShareReceiverActivity : AppCompatActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShareReceiverSheet(
-    url: String,
+    initialUrl: String,
     initialTitle: String? = null,
     initialImageUrl: String? = null,
     viewModel: HomeViewModel,
     onDismiss: () -> Unit,
-    onSaved: () -> Unit
+    onSaved: () -> Unit,
+    /** Opens Enhanced features from the shared link, as the add sheet does. */
+    onOpenEnhancedSettings: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // The shared URL is held locally because "Clean URL" in the enhanced actions rewrites it before
+    // the user saves, so it cannot be a read-only parameter any more.
+    var url by remember(initialUrl) { mutableStateOf(initialUrl) }
+    // Which URL metadata was last fetched for, so cleaning a link re-triggers the fetch.
+    var lastFetchedUrl by remember { mutableStateOf(initialUrl) }
 
     // Form state
     var selectedFolderId by remember { mutableStateOf<Long?>(null) }
@@ -633,6 +652,23 @@ fun ShareReceiverSheet(
                         }
                     }
                 }
+
+                Spacer(Modifier.height(8.dp))
+
+                // ── Enhanced actions ──────────────────────────
+                // The owner's report was that sharing to Linksi gave none of the enhanced features.
+                // They belong here for the same reason they belong in the add sheet: this is a screen
+                // where a link has just arrived and the user is deciding what to do with it.
+                EnhancedLinkActions(
+                    url = url,
+                    onCleanedUrl = { cleaned ->
+                        url = cleaned
+                        // The cleaned URL is a different link, so any metadata already fetched for the
+                        // uncleaned one is stale; clearing the marker lets the fetch run again.
+                        lastFetchedUrl = ""
+                    },
+                    onOpenEnhancedSettings = onOpenEnhancedSettings
+                )
 
                 Spacer(Modifier.height(4.dp))
 

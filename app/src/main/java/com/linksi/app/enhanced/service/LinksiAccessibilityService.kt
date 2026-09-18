@@ -11,6 +11,9 @@ import com.linksi.app.enhanced.EnhancedPreferenceKeys
 import com.linksi.app.enhanced.detect.CopyDetection
 import com.linksi.app.enhanced.detect.CopyEventInput
 import com.linksi.app.enhanced.detect.CopyEventType
+import com.linksi.app.enhanced.detect.CopyObservation
+import com.linksi.app.enhanced.detect.CopyObservationLog
+import com.linksi.app.enhanced.detect.CopyRejection
 import com.linksi.app.enhanced.detect.LikelyCopyDetector
 import com.linksi.app.enhanced.detect.SmartLinkDetector
 import com.linksi.app.enhanced.detect.UrlTextExtractor
@@ -88,8 +91,21 @@ class LinksiAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
+        // Every decision is recorded as a content-free code, so "why did my copy do nothing?" has an
+        // answer on the device. This stores no text, no URL and nothing from the clipboard - see
+        // CopyObservationLog. The service still writes nothing to logcat.
+        val packageName = event.packageName?.toString()
+        val type = eventTypeOf(event.eventType)
+
         // 1. Cheapest possible rejection first: the whole feature is off.
-        if (!isEnabled()) return
+        if (!isEnabled()) {
+            CopyObservationLog.record(
+                CopyObservation(
+                    System.currentTimeMillis(), type, packageName, CopyRejection.NO_COPY_SIGNAL
+                )
+            )
+            return
+        }
 
         // 2. A burst of events for one user action must not queue up work.
         val now = SystemClock.elapsedRealtime()
@@ -98,13 +114,29 @@ class LinksiAccessibilityService : AccessibilityService() {
         // Refuse an ignored app before asking the event for its source node or materialising any of
         // its text. Checking only after readEvent() would make the ignore list a UI filter rather
         // than the privacy boundary promised to the user.
-        val packageName = event.packageName?.toString()
-        if (LikelyCopyDetector.isIgnoredPackage(packageName, cachedIgnoredPackages)) return
+        if (LikelyCopyDetector.isIgnoredPackage(packageName, cachedIgnoredPackages)) {
+            CopyObservationLog.record(
+                CopyObservation(
+                    System.currentTimeMillis(), type, packageName, CopyRejection.IGNORED_PACKAGE
+                )
+            )
+            return
+        }
 
-        val input = readEvent(event) ?: return
+        val input = readEvent(event)
+        if (input == null) {
+            CopyObservationLog.record(
+                CopyObservation(System.currentTimeMillis(), type, packageName, CopyRejection.NO_TEXT)
+            )
+            return
+        }
 
-        // 3. Pure heuristic, no I/O. It repeats the package check defensively for non-service callers.
-        val detection = LikelyCopyDetector.detect(input, cachedIgnoredPackages)
+        // 3. Pure heuristic, no I/O. The "with reason" form returns exactly the same CopyDetection the
+        //    plain form would, and additionally says which rule decided.
+        val (detection, rejection) = LikelyCopyDetector.detectWithReason(input, cachedIgnoredPackages)
+        CopyObservationLog.record(
+            CopyObservation(System.currentTimeMillis(), type, packageName, rejection)
+        )
         if (detection !is CopyDetection.Detected) return
 
         lastForwardedAtMs = now
