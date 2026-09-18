@@ -3239,3 +3239,87 @@ service's no-logging privacy promise is untouched.
 The larger lesson, and the reason this took a field report to find: **the objective was verified on the
 wrong device.** Every gate passed on the POCO, and the feature did nothing on the phone the owner
 actually uses. Verification is only as good as the device it runs on.
+
+---
+
+## 48. Addendum 37 — the copy signal, and a silent save
+
+### 48.1 The report that named the bug
+
+The owner, after installing the fixes above:
+
+> "if I simply copy a link, it doesn't happen anything … but if I paste that link into any area where the
+> link can be pasted, the bubble appears."
+
+That distinction — copy does nothing, paste works — is the whole diagnosis. The in-app paste path reads
+the clipboard from a focused activity and never needs the accessibility heuristic. A **copy** depends on
+the heuristic recognising the event, and the heuristic was rejecting the commonest copy in existence.
+
+### 48.2 Why "select a link, tap Copy" was invisible
+
+Selecting a link and tapping **Copy** makes the platform deliver **two** events:
+
+| # | Event | Carries |
+|---|---|---|
+| 1 | `TYPE_VIEW_TEXT_SELECTION_CHANGED` | the selected text — the link itself |
+| 2 | `TYPE_VIEW_CLICKED` on the "Copy" control | usually **no URL at all** |
+
+The detector judged each event alone. Event 2 had a copy label but nothing to copy, so `urlSource`
+returned null and the verdict was `NO_URL`. Event 1 had a URL but, in the common flow, was not itself a
+copy. Neither alone is a copy, and together they plainly are — which is precisely what the code failed
+to model.
+
+This also explains why my own earlier external-copy test passed (§47): the `PROCESS_TEXT` affordance
+carries the link *in the click event*, so it happened to satisfy the rule. It was the wrong test case for
+the user's actual flow, and it made the gap look closed when it was not.
+
+### 48.3 The fix, and its bounds
+
+The service now remembers the URL of a **just-seen selection** for at most
+`RecentSelection.MAX_AGE_MS` (5 s) and lets a following copy click resolve against it. Retention is a
+deliberate exception to "nothing is kept", so it is bounded on five axes and documented in the code:
+
+| Bound | Why |
+|---|---|
+| One URL, not a history | A list would be a record of the user's activity |
+| Expires after 5 s | It only has to outlive one tap |
+| Discarded on use | One selection can explain at most one copy |
+| Memory only | Nothing is written anywhere, ever |
+| Holds only what was already selected on screen | It adds no new exposure the platform had not already handed over |
+
+Four tests pin it: the click resolving to the selection, a **stale** selection being refused, a copy click
+with no selection still being unusable, and an event's own URL taking precedence over the remembered one.
+
+### 48.4 The silent save
+
+The owner's second report:
+
+> "when the bubble appears and you click save … I don't get the confirmation. It does save, but I don't
+> get the confirmation."
+
+`DownloadUiEntryPoint.save()` has always computed a `PanelSaveResult` — `SAVED`, `ALREADY_SAVED`,
+`FAILED` — and **nothing rendered it.** The panel showed no feedback at all, so a successful save was
+indistinguishable from a failed one to the user. The result is now shown as a banner under the SAVE
+section, with "Saving…" on the row while the work is in flight.
+
+### 48.5 Verified
+
+| Check | Result |
+|---|---|
+| Unit tests | **782, 0 failures** (10 new across §47–§48) |
+| Tests that caught my own over-reachings | **5** — a click on a URL in a text field, prose mentioning "link", non-click events, a stale selection, and precedence |
+| Release artifacts | arm64 `92A47147A26DFED408371AEDA68D6E3D92AEEB6076F886988CA260EDF3A17F16`, universal `F22AF12D22CA77D3752B92679E0CC8C5D7F53136B46B665A48B7378F012CA1DD` — both MATCH, signature verified |
+| Build record | commit `40155a1`, `uncommitted: no` |
+| Real device | external copy observed on the OPPO and `BubbleService: bubble shown as a TYPE_APPLICATION_OVERLAY window` logged for **both** the release and debug packages |
+
+### 48.6 What this round actually demonstrates
+
+Three of the four defects fixed on the OPPO were **invisible on the POCO and the emulator**, and one of
+them — the copy signal — was actively *hidden* by an earlier test that used the wrong affordance. The
+pattern worth carrying forward:
+
+1. **A passing device test only proves the case it exercises.** `PROCESS_TEXT` is not "copy a link".
+2. **Ask what the user's sequence of platform events actually is**, rather than what a convenient
+   simulation produces. The two-event nature of "select then Copy" was the entire bug.
+3. **A silent success is a defect.** The save worked for months of testing and looked broken to the only
+   person using it.
