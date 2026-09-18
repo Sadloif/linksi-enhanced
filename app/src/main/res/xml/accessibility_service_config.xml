@@ -7,6 +7,10 @@
 
   * accessibilityEventTypes is limited to the four event kinds a copy action can produce. It is
     NOT typeAllMask: narrower scope is both faster and an explicit minimum-scope signal.
+    `typeWindowsChanged` was added after a field investigation: it is the event that announces a new
+    window, and `flagRetrieveInteractiveWindows` (below) is documented as requiring it. Without it a
+    context menu opening in its own window was never announced, which is precisely the window a
+    browser puts a long-press menu in - see TEST_REPORT.md §51.
   * accessibilityFeedbackType is feedbackGeneric - this service shows no feedback of its own and
     is not an accessibility tool for people with disabilities.
   * notificationTimeout throttles delivery to at most one event per 100 ms. Accessibility
@@ -27,7 +31,7 @@
     android:description="@string/enhanced_accessibility_service_description"
     android:summary="@string/enhanced_accessibility_service_summary"
     android:settingsActivity="com.linksi.app.MainActivity"
-    android:accessibilityEventTypes="typeViewClicked|typeViewTextSelectionChanged|typeWindowContentChanged|typeWindowStateChanged"
+    android:accessibilityEventTypes="typeViewClicked|typeViewTextSelectionChanged|typeWindowContentChanged|typeWindowStateChanged|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
     android:notificationTimeout="100"

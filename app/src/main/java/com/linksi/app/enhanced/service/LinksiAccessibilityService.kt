@@ -149,6 +149,20 @@ class LinksiAccessibilityService : AccessibilityService() {
             android.util.Log.i(TAG_DEBUG, "arrived: $type pkg=$packageName")
         }
 
+        // A new window is how a browser announces its long-press menu. Dump every window at that moment,
+        // while the menu is still on screen - by the time a click arrives the menu may already be gone,
+        // which is why an earlier search of `event.source` alone found nothing.
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            dumpAllWindows("windows-changed pkg=$packageName")
+        }
+
+        // Belt and braces for the case a menu is added without a windows-changed event: a long press in
+        // a browser fires a selection change, and at that instant the menu is about to be (or already is)
+        // on screen, so this is the moment worth capturing.
+        if (BuildConfig.DEBUG && type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
+            dumpAllWindows("selection pkg=$packageName")
+        }
+
         // 1. Cheapest possible rejection first: the whole feature is off.
         if (!isEnabled()) {
             CopyObservationLog.record(
@@ -488,6 +502,68 @@ class LinksiAccessibilityService : AccessibilityService() {
         null
     }.getOrNull()
 
+    /**
+     * Debug-only: dump every interactive window and every node's metadata, including `extras`.
+     *
+     * This exists to close one specific gap. The earlier investigation searched only `event.source` and
+     * only `node.text`/`contentDescription`, and both assumptions were shown to be too narrow:
+     *
+     *  - a context menu is often a **separate window**, reachable only through [getWindows] and
+     *    announced by `TYPE_WINDOWS_CHANGED` (a type this service did not even subscribe to until now,
+     *    despite already setting `flagRetrieveInteractiveWindows`, which is documented as requiring it);
+     *  - Chromium stores a link's destination in the node's **extras** bundle under
+     *    `AccessibilityNodeInfo.targetUrl`, which `node.text` inspection cannot see.
+     *
+     * Everything is logged in a debug build only, and the URL-bearing extras are recorded as a
+     * presence flag plus a redacted snippet rather than the raw value, so this stays a diagnostic rather
+     * than a log of what the user copied.
+     */
+    private fun dumpAllWindows(reason: String) {
+        if (!BuildConfig.DEBUG) return
+        runCatching {
+            val windows = windows.orEmpty()
+            android.util.Log.i(TAG_DEBUG, "WINDOWS[$reason] count=${windows.size}")
+            windows.forEachIndexed { index, window ->
+                val root = runCatching { window.root }.getOrNull()
+                android.util.Log.i(
+                    TAG_DEBUG,
+                    "WINDOWS[$reason] #$index id=${window.id} type=${window.type} " +
+                        "layer=${window.layer} active=${window.isActive} focused=${window.isFocused} " +
+                        "root=${root?.className?.toString()?.substringAfterLast('.')}"
+                )
+                if (root != null) dumpNode(root, reason, depth = 0, budget = intArrayOf(MAX_DUMP_NODES))
+            }
+        }.onFailure {
+            android.util.Log.i(TAG_DEBUG, "WINDOWS[$reason] dump failed: ${it.javaClass.simpleName}")
+        }
+    }
+
+    /** Depth-first node dump, bounded by `budget[0]` nodes in total. */
+    private fun dumpNode(node: AccessibilityNodeInfo, reason: String, depth: Int, budget: IntArray) {
+        if (budget[0]-- <= 0) return
+        val extras = runCatching { node.extras }.getOrNull()
+        val extraKeys = extras?.keySet()?.joinToString(",").orEmpty()
+        // The Chromium link target. Presence is what matters; the value is redacted to a marker.
+        val target = runCatching { extras?.getString("AccessibilityNodeInfo.targetUrl") }.getOrNull()
+        val targetNote = when {
+            target == null -> ""
+            else -> " targetUrl=PRESENT(len=${target.length})"
+        }
+        android.util.Log.i(
+            TAG_DEBUG,
+            "WINDOWS[$reason] ${"  ".repeat(depth.coerceAtMost(6))}" +
+                "${node.className?.toString()?.substringAfterLast('.')} " +
+                "viewId=${node.viewIdResourceName ?: "-"} " +
+                "text=${LabelSnippet.of(true, null, node.text?.toString()) ?: "-"} " +
+                "desc=${LabelSnippet.of(true, node.contentDescription?.toString(), null) ?: "-"} " +
+                "clickable=${node.isClickable} actions=${node.actionList.size} " +
+                "extras=[$extraKeys]$targetNote"
+        )
+        for (child in 0 until node.childCount) {
+            node.getChild(child)?.let { dumpNode(it, reason, depth + 1, budget) }
+        }
+    }
+
     override fun onInterrupt() {
         // Nothing to interrupt: this service holds no resources and no ongoing work.
     }
@@ -692,5 +768,8 @@ class LinksiAccessibilityService : AccessibilityService() {
 
         /** Words that mark a node as a copy affordance rather than content. */
         private val COPY_ACTION_WORDS = listOf("copy", "link", "clipboard")
+
+        /** Most nodes a single window dump may print, so a large page cannot flood the log. */
+        private const val MAX_DUMP_NODES = 500
     }
 }
