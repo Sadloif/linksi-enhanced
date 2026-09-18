@@ -128,6 +128,29 @@ ac9693d  Fix: Fixed abnormal behavior when deleting a link
 f8caa5e  Fix: Metadata fetching from instagram
 ```
 
+### These five were merged on 2026-09-18
+
+Merge commit `2270690`, **two conflicts**, both resolved deliberately. Recorded here because the next
+merge will hit the same two.
+
+**1. `app/build.gradle` — version metadata only.**
+
+| | Upstream | This fork | Resolution |
+|---|---|---|---|
+| `targetSdk` | 34 | 36 | **36** — 34 would be a regression |
+| `versionCode` | 21 | 23 | **24** — 23 is installed on a phone, and an equal versionCode cannot update over it |
+| `versionName` | `3.2.0` | `3.1.1-enhanced.3` | **`3.2.0-enhanced.1`** — upstream's number with this fork's marker |
+
+**2. `MetadataFetcher.kt` — upstream added three helpers this fork had already moved.**
+
+`extractDomain`, `isValidUrl` and `normalizeUrl` live in `UrlNormalizer.kt` here. Taking upstream's copies
+would be a **duplicate-definition error**, so this fork's side was kept and upstream's helpers are absent
+from that file. Upstream's larger refactor of `MetadataFetcher` — which removed its hosted scraper API in
+favour of per-domain resolvers in the new `LinkResolvers.kt` — merged cleanly around it.
+
+**Take-away for next time:** expect exactly these two files to conflict. Everything else merged
+automatically, including `HomeScreen.kt`, `HomeViewModel.kt` and `strings.xml`.
+
 ### How to bring them in
 
 ```powershell
