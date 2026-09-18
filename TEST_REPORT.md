@@ -3048,3 +3048,84 @@ URL and not the old one) is unchanged and is now checked where it is actually me
 This is the **third** time this session that an instrumented run revealed the *test* rather than the
 code, and the first where the remedy was a more precise assertion rather than a corrected expectation.
 All three are recorded as traps in `SESSION_HANDOVER.md` §5.
+
+---
+
+## 46. Addendum 35 — final verification of the delivered objective
+
+### 46.1 What this section is for
+
+Everything above is a record of individual findings. This section answers a different question: **at
+commit `94a99a1`, is the objective actually delivered, and is that provable from a clean tree?** Every
+number below was taken in one pass against that commit, not carried forward from an earlier addendum.
+
+`OBJECTIVE_VERIFICATION.md` carries the clause-by-clause matrix (objective clause → implementation →
+test → evidence). This section carries the raw gate results.
+
+### 46.2 The gates, re-run in one pass
+
+| Gate | Result |
+|---|---|
+| `:app:testDebugUnitTest` | **772 tests, 35 suites, 0 failures, 0 errors, 0 skipped** |
+| `:app:lintDebug` | **0 errors**, 180 warnings, 4 hints — all pre-existing baseline |
+| Instrumented suites on the POCO | **13 suites, 0 failures** |
+| Instrumented tests | **39** |
+
+The instrumented run, suite by suite, on the physical POCO X3 Pro:
+
+| Suite | Result |
+|---|---|
+| `CoreFlowsSmokeTest` | 4 / 4 |
+| `Android16CompatibilitySmokeTest` | 4 / 4 (skipped by assumption on Android 13 — emulator evidence only) |
+| `DownloadEngineInstrumentedTest` | 1 / 1 |
+| `BubbleOverlayInstrumentedTest` | 1 / 1 |
+| `ClipboardPanelInstrumentedTest` | 5 / 5 |
+| `DirectFileDownloaderInstrumentedTest` | 2 / 2 |
+| `PublishFallbackInstrumentedTest` | 2 / 2 |
+| `RealSiteLinksInstrumentedTest` | 2 / 2 |
+| `ServerResolverInstrumentedTest` | 3 / 3 |
+| `SlowTransferInstrumentedTest` | 1 / 1 |
+| `StorageIntegrityInstrumentedTest` | 3 / 3 |
+| `YtDlpInterruptedDownloadTest` | 4 / 4 |
+| `YtDlpMediaSmokeTest` | 7 / 7 |
+
+### 46.3 The artifact, checked against the tree rather than assumed
+
+| Check | Result |
+|---|---|
+| Build record commit | `94a99a1` |
+| `git rev-parse HEAD` | `94a99a1` — **matches** |
+| Tree state | **clean**, `uncommitted: no` |
+| Newest file under `app/src` | 09:02:38 |
+| arm64 APK built | 09:12:26 — **newer than the source**, so it contains every source change |
+| Debug APK used for the device runs | 09:03:24 — also newer than the source |
+| arm64 digest | `474A37E4…` — MATCH against its `.sha256` |
+| universal digest | `51FCF54A…` — MATCH against its `.sha256` |
+| Signature | verifies, APK Signature Scheme v2, 4096-bit RSA |
+
+That last group is the part that is easy to get wrong and worth doing every time: an artifact whose
+recorded commit, tree state and source timestamps do not line up is not evidence of anything.
+
+### 46.4 Totals
+
+| Check | Result |
+|---|---|
+| Objective clauses with implementation, test and device evidence | **all** (see `OBJECTIVE_VERIFICATION.md`) |
+| Unit tests | **772 / 0 failures** |
+| Lint | **0 errors** |
+| Instrumented suites | **13 / 13**, 39 tests, 0 failures |
+| Signed APK | built from the committed tree, digests and signature verified |
+| Documentation set | **11 documents** |
+
+### 46.5 What remains, stated plainly
+
+Completing the objective is not the same as having no limits, and the honest qualification is:
+
+- **Nothing has run on the owner's actual phone** (OPPO Reno15 / ColorOS 16). Every device result is a
+  POCO X3 Pro (Android 13 / MIUI 14) or an API 36 emulator. This is the highest-value remaining work and
+  it needs the owner's hardware.
+- API 36 UI depth (predictive-back ordering through nested sheets, rotation, cutouts, IME,
+  tablet/foldable) is untested — compatibility depth, not known failures.
+- The licence question is unresolved by the owner's own direction (`LICENSE_REVIEW.md`).
+- Reminders are broken upstream; Room schema 12 has no migrations; MediaStore resume is deliberately
+  not implemented.
