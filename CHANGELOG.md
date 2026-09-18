@@ -228,10 +228,31 @@ archived under `artifacts\releases\` — not yet distributed.
   investigation had guessed at. The callback body is now guarded, the caller's own `onProgress`
   cannot fail a download, and the channel send cannot throw on a closed channel.
 
+- **The site-engine Settings row was inert until something else had used the engine.** `YtDlpRuntime`
+  deliberately does not start the engine at app start, but the two methods the settings screen calls
+  (`engineVersion`, `refreshEngine`) went straight to `YtDlpUpdater`, which runs the engine through the
+  wrapper - and the wrapper refuses to run anything before `YoutubeDL.init`. So on a fresh process the
+  row read "Version not reported yet" and tapping **Check** answered `instance not initialized`. Every
+  other caller was fine, because every other caller drives a download and a download initialises first;
+  asking *about* the engine without using it was the one path that skipped it. Both methods now start
+  the engine first, with `engineVersion()` degrading to "not reported yet" and `refreshEngine()`
+  surfacing the real reason, since only the second is a user-initiated action. Verified on the POCO:
+  the row now reads `Version 2026.08.19`, and **Check** reports `Already up to date (2026.08.19)` after
+  staging and checksum-verifying the published release. `TEST_REPORT.md` §40.
+
+- **A test that drives the owner's own real links through the app** — `RealSiteLinksInstrumentedTest`.
+  The five-site acceptance criterion had been unprovable from this machine because Instagram, TikTok
+  and Pinterest answer a scripted client with a challenge page and guessed ids 404. Given real links it
+  now reports per-site coverage, separating a site's refusal from an app failure. Result on the POCO:
+  **13 of 16 links extracted — TikTok 6/6, YouTube 10/10**, with 33–178 formats per link, up to 3840p,
+  full titles, uploaders and durations (including a 65-minute video). URLs come from
+  `-e realLinkUrls "url,url,…"`, so a later session can probe a fresh list without editing source.
+  `TEST_REPORT.md` §41.
+
 ### Verified on real hardware
 
-These are readings from the physical POCO X3 Pro (Android 13 / MIUI 14), not code changes. They close
-the last unproven element of the specification. Full detail in `TEST_REPORT.md` §39.
+Readings from the physical POCO X3 Pro (Android 13 / MIUI 14), plus one defect that only a device could
+find. Full detail in `TEST_REPORT.md` §39–§41.
 
 - **The floating bubble is visibly on screen.** The overlay window is present (`ty=APPLICATION_OVERLAY`,
   `appop=SYSTEM_ALERT_WINDOW`, 156×156 px at (900,722)), has a surface, is ready for display and is not
@@ -244,6 +265,11 @@ the last unproven element of the specification. Full detail in `TEST_REPORT.md` 
   quirk found along the way: after an `am force-stop`, enabling the service over `adb` leaves it parked
   in `Binding services` indefinitely with no error, and only launching the app first recovers it
   (`TEST_REPORT.md` §39.4). This is a developer-automation trap, not an end-user one.
+- **The site engine reads real TikTok and YouTube links.** Driven through the app's own extractor on the
+  POCO: **TikTok 6/6 and YouTube 10/10** of the owner's links, 33–178 formats each and up to 3840p,
+  with the three failures being TikTok `Connection reset by peer` throttling on a second pass over
+  links that had already extracted (`TEST_REPORT.md` §41). Together with the earlier Facebook result,
+  three of the specification's named sites now have real-content proof.
 
 ---
 

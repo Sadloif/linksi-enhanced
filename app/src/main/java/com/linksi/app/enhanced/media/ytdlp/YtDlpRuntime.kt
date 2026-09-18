@@ -149,11 +149,38 @@ class YtDlpRuntime @Inject constructor(
      *
      * Exposed for the settings screen: the wrapper's own `versionName` reads a preference that only
      * its own updater writes, so it is null for a freshly installed app.
+     *
+     * This starts the engine if nothing has yet, because the version is read by *running* the engine
+     * (`<python> <engine> --version`) and the wrapper refuses to run anything before
+     * `YoutubeDL.init`. Without [ensureReady] the settings row reads "not reported yet" on a fresh
+     * process and its Check button fails with `instance not initialized` - measured on the POCO on
+     * 2026-09-18 (`TEST_REPORT.md` section 40). Initialising here is not startup work: this is only
+     * reached when a user opens the screen and asks about the engine.
+     *
+     * A failed start yields null here rather than an error, so the row falls back to "not reported
+     * yet"; [refreshEngine] is where the user asks for a real answer and gets the reason.
      */
-    suspend fun engineVersion(): String? = updater.installedVersion()
+    suspend fun engineVersion(): String? {
+        if (ensureReady() !is YtDlpInitStatus.Ready) return null
+        return runCatching { updater.installedVersion() }.getOrNull()
+    }
 
-    /** Replaces the site engine with the published release, whatever the last check's age. */
-    suspend fun refreshEngine(): YtDlpRefreshResult = updater.refreshIfStale(force = true)
+    /**
+     * Replaces the site engine with the published release, whatever the last check's age.
+     *
+     * Starts the engine first for the same reason [engineVersion] does, but reports the failure
+     * instead of hiding it: this is a user-initiated action, so "it could not start" must reach the
+     * screen rather than surface as a generic update error.
+     */
+    suspend fun refreshEngine(): YtDlpRefreshResult {
+        when (val init = ensureReady()) {
+            is YtDlpInitStatus.Failed -> return YtDlpRefreshResult.Failed(init.reason)
+            YtDlpInitStatus.NotStarted ->
+                return YtDlpRefreshResult.Failed("the site engine could not be started")
+            YtDlpInitStatus.Ready -> Unit
+        }
+        return updater.refreshIfStale(force = true)
+    }
 
     /** The application context the engine was started with. */
     internal val appContext: Context get() = context.applicationContext

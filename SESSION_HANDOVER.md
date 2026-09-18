@@ -93,20 +93,21 @@ Everything below has evidence in `TEST_REPORT.md`; that file is the authority, n
 |---|---|
 | URL cleaner + "Clean URLs when saving" + clean-URL actions | **Done**, 83 tests, verified through the real share sheet **and** in the stored database row on a device: a Reel shared with `utm_source`/`fbclid` is stored with neither. Evidence: `TEST_REPORT.md` §24 |
 | `normalizeUrl` whole-URL lowercasing | **Fixed** (it was destroying path/query case on every save) |
-| Smart link detection + optional Accessibility service + floating bubble | **Everything short of pixels is verified on the POCO or the emulator** (`TEST_REPORT.md` §25, §26, §38): the service is bound with its four event types, `SYSTEM_ALERT_WINDOW` is granted, `BubbleService` reports `bubble shown as a TYPE_APPLICATION_OVERLAY window`, the tap decision is pinned by 11 unit tests, and the route a tap leads to — panel opened with **no extra**, reading the clipboard, showing the link **cleaned** — now has its own instrumented test. **Whether the circle is visible still needs an eye**: producing a real link-copy remotely is not possible on this ROM |
+| Smart link detection + optional Accessibility service + floating bubble | **DONE, including the pixels** (`TEST_REPORT.md` §25, §26, §38, §39). The service is bound with its four event types, `SYSTEM_ALERT_WINDOW` is granted, `BubbleService` logs `bubble shown as a TYPE_APPLICATION_OVERLAY window`, the overlay window is present with a surface and unobscured, **and a screenshot shows the bubble over the launcher** — the last open item in this module. The tap decision is pinned by 11 unit tests and the route a tap leads to has its own instrumented test |
 | API 36 compatibility suite | **Runs on the emulator only.** `Android16CompatibilitySmokeTest` is 4/4 **skipped by assumption** on the POCO (Android 13). Do not quote it as phone evidence — the POCO's real contribution is `CoreFlowsSmokeTest` 4/4 (`TEST_REPORT.md` §25.5) |
 | Quick action panel | **Done and mounted** — reachable from the link options sheet, from the bubble, and screenshot-verified on device |
 | Direct file downloader (images/PDFs/audio/video/archives) | **Done**, real download verified on device into MediaStore (`is_pending=0`) |
 | Site extraction via yt-dlp (`youtubedl-android` 0.17.3 + FFmpeg) | **Implemented**; extraction verified on device (11 formats from a DASH manifest) |
 | **Merged download (video+audio through FFmpeg)** | **VERIFIED END TO END ON REAL HARDWARE** — 21,210,202 bytes merged and published to MediaStore on the POCO X3 Pro. Evidence: `TEST_REPORT.md` §14 |
 | **Real Facebook links extract** | **VERIFIED ON BOTH DEVICES** — after the engine refresh, the specification's own Reel example yields 11 formats up to 1920p. Bundled 2024.09.27 read 0 of 9 real links; current release reads 5 of 9 (the other 4 are dead share links). Evidence: `TEST_REPORT.md` §19 |
-| **Site-engine refresh (`YtDlpUpdater`)** | **Done and verified on both devices** — fixed release URL, SHA-256 against the published `SHA2-256SUMS`, atomic swap, post-install probe with rollback, weekly at most, manual Check in settings. 15 unit tests |
+| **Real TikTok and YouTube links extract** | **VERIFIED ON THE POCO (and YouTube on the emulator)** — the owner's own 16-link list driven through the app's extractor: **13 of 16, TikTok 6/6 and YouTube 10/10**, 33–178 formats each, up to 3840p, with titles, uploaders and durations (including a 65-minute video). The 3 failures are TikTok `Connection reset by peer` throttling on a second pass over links that had just worked. Evidence: `TEST_REPORT.md` §41 |
+| **Site-engine refresh (`YtDlpUpdater`)** | **Done and verified on both devices** — fixed release URL, SHA-256 against the published `SHA2-256SUMS`, atomic swap, post-install probe with rollback, weekly at most, manual Check in settings. 15 unit tests. The **Check button was tapped on the POCO on 2026-09-18** and reported `Already up to date (2026.08.19)`; doing so found and fixed a defect where the settings row never started the engine (`TEST_REPORT.md` §40) |
 | **Download watchdog (stall + hard limits)** | **Implemented and unit tested (20 tests)**, and the stall path is now proven on hardware with a loopback server that sends bytes then stalls — the watchdog stopped yt-dlp and returned `NETWORK`, `transient=true` (`TEST_REPORT.md` §18.1) |
 | **Retry resumes instead of restarting** | **Verified on hardware.** A dropped connection resumes at the exact byte (`Resuming download at byte 2096128`), the scratch directory is kept across a transient failure, and the retry sent `Range` at the preserved length (`TEST_REPORT.md` §18.1, §22) |
 | **`POST_NOTIFICATIONS` runtime request** | **Granted on the POCO and confirmed by device state** (`granted=true`, `USER_SET`, §18.3). The dialog has now been seen appearing in context on the API 36 emulator while tapping Download (§27) |
 | Optional private server resolver | **Verified on the wire** (`TEST_REPORT.md` §29). A test HTTPS server captured the one request it makes: body is exactly `{"url": …}` with the link and nothing else, the API key travels as an `Authorization: Bearer` header and is absent from the request target, an `http://` configuration is `Skipped` **before** anything is sent, and a malformed body, an HTTP 500 and a refused connection each come back as `SERVER_UNAVAILABLE` values rather than exceptions |
 | Enhanced Features settings screen (all modules togglable) | **Done**; lint passes with 0 errors |
-| Signed release APKs | **CURRENT**: `3.1.1-enhanced.3` / versionCode 23, signed, hashed and archived in `artifacts\releases\` (arm64 `D3944FAC2707C3A3F92B07D5EC802F19AD70C3588813F7FB5FE6E5327D3075CB`, universal `6BDA8FE0632E1697A543E1CF88C5269D9B04D8D8D3769A958689C0E9A15BCF50`). Tested on the POCO (installs, launches, no R8 fault) and on the emulator (panel renders; a fresh install refreshes its own engine; a Facebook Reel publishes as a 6.78 MB MP4 with the panel reporting **Download complete**). Evidence: `TEST_REPORT.md` §20–§36 |
+| Signed release APKs | **CURRENT — rebuilt 2026-09-18 after the `YtDlpRuntime` fix**: `3.1.1-enhanced.3` / versionCode 23, signed, hashed and archived in `artifacts\releases\` (arm64 `E1A392D8AF46F4E70B21CDB4DF1AF10B665B13E0A693AB60C1C7705F6B49FA7E`, universal `7E9222EFEF8D2067F523B23FD0AEB1F3BE08FDCAEDE6C7FDC1A4B12C87E9FA7B`, both re-hashed and the signature verified with `apksigner`). Tested on the POCO (installs, launches, no R8 fault) and on the emulator (panel renders; a fresh install refreshes its own engine; a Facebook Reel publishes as a 6.78 MB MP4 with the panel reporting **Download complete**). Evidence: `TEST_REPORT.md` §20–§41 **Superseded hashes: arm64 `D3944FAC…`, universal `6BDA8FE0…` — do not quote those for the current build** |
 | A completed download is never reported as failed | **Fixed, four times over** (`TEST_REPORT.md` §27.3, §35). MediaStore can refuse the publish, leave a stale row, **rename** the file to `clip (1).mp4`, or keep a row for a file that has been deleted; each produced either a false failure or a false success. `commit` now asks the **filesystem first** (name plus the exact written size) and the collection's rows only afterwards, and `PublishFallbackInstrumentedTest` constructs the collision on demand so the guard cannot regress silently |
 | A page can no longer be saved as a file | **Fixed and verified on device** — a lying content type used to put an XML error page into Downloads with no error; the body's leading bytes are now checked for a document signature, and such a URL is handed to the site engine instead of failing (`TEST_REPORT.md` §20.3, §21) |
 | A dropped connection resumes | **Fixed and measured** — yt-dlp restarted every in-run retry, so a 6.46 MiB transfer that reached 97.6% failed; `--continue` is now passed and the engine reports `Resuming download at byte 2096128` (`TEST_REPORT.md` §22) |
@@ -309,6 +310,8 @@ the run logs `ytdlp-merge1/2/3.log`, which are the raw evidence for `TEST_REPORT
 | On MIUI, the accessibility service sits in `Binding services` forever with `Crashed services:{}` and nothing in logcat | An earlier `am force-stop` of the app parks the bind permanently, and `settings put secure accessibility_enabled 1` + `enabled_accessibility_services` cannot recover it. **Launch the app first, wait for the process, then enable** — it binds immediately (`TEST_REPORT.md` §39.4). A user flipping the Settings toggle is unaffected, because the app's process is alive behind the Settings screen |
 | `dumpsys window windows` "does not show overlay windows" on MIUI | **Wrong — it does.** The package lands on the `mOwnerUid=` line and `ty=APPLICATION_OVERLAY` several lines later inside one very long `mAttrs=` line, and MIUI lists framework windows first (the app overlay was `Window #7`). Find the block by its header, then read forward with `-Context 0,14` (`TEST_REPORT.md` §39.3). `SurfaceFlinger --list` genuinely is useless for this |
 | An `am instrument` run ends `INSTRUMENTATION_RESULT: shortMsg=Process crashed.` | Check whether **you** killed it: an `am force-stop` issued while the test is running tears the process down and reports exactly this. The run's own logcat still shows its passes (`TEST_REPORT.md` §39) |
+| `tools\build-release.ps1` fails at `:app:packageRelease` with `Unable to allocate 17024776 bytes` / `OutOfMemoryError`, or the daemon disappears | The release packaging (two ABI splits, one 125 MB) needs most of the daemon's 2 GB, and `build-release.ps1` runs `:app:testDebugUnitTest :app:lintDebug` **in the same daemon first**, so packaging starts on a heap the tests already filled. Run `powershell -File tools\build-release.ps1 -SkipChecks` (then run the gates separately) — it succeeded immediately on the first try after four failures. **Do not try to raise the heap: `-Xmx4096m` cannot even start on this machine** (`os::commit_memory … The paging file is too small`, G1 virtual space). 2 GB is the ceiling, not a modest default |
+| `:app:validateSigningRelease FAILED` right after `:app:preBuild` | You invoked `gradlew :app:assembleRelease` directly, so `KEYSTORE_PATH`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD` were never set. Those are supplied by `tools\build-release.ps1`, which reads them from `E:\Deepseek\Linksi\keys\`. Always build releases through the script |
 
 ---
 
@@ -324,13 +327,19 @@ With that, **every module in the specification has been verified end-to-end on a
 link in any module is unproven.** What remains below is depth, breadth and the release itself — not
 missing functionality.
 
-1. **Real-content support: Facebook is done, four sites still need URLs.** With the engine refresh in
-   place, **a real Facebook Reel extracts on both devices** — including `reel/1710485373378939`, the
-   specification's own worked example — yielding 11 formats up to 1920p
+1. **Real-content support: Facebook, TikTok and YouTube are done; three sites still need URLs.** With
+   the engine refresh in place, **a real Facebook Reel extracts on both devices** — including
+   `reel/1710485373378939`, the specification's own worked example — yielding 11 formats up to 1920p
    (`TEST_REPORT.md` §19.2). The root cause was a year-old bundled yt-dlp (0 of 9 real links read,
    against 5 of 9 for a current release); four of the nine are dead share links that no engine can
-   read. **Instagram, TikTok, Pinterest and Reddit still need 2–5 real public URLs each** — that is
-   now the only thing blocking the five-site acceptance criterion, and it is a human input.
+   read. On 2026-09-18 the owner supplied real TikTok and YouTube links, and
+   `RealSiteLinksInstrumentedTest` drove them through the app's own extractor: **13 of 16 extracted —
+   TikTok 6/6, YouTube 10/10**, 33–178 formats per link, up to 3840p, with the three failures being
+   TikTok `Connection reset by peer` throttling on a second pass over links that had just worked
+   (`TEST_REPORT.md` §41). **Instagram, Pinterest and Reddit still need 2–5 real public URLs each** —
+   they are the only sites left without real-content proof, and they cannot be self-served from here
+   (§32.2). Probe any new list with:
+   `adb -s 69ef2e21 shell am instrument -w -e class com.linksi.app.RealSiteLinksInstrumentedTest -e realLinkUrls "url,url,…" com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner`
 2. **Physical-device testing on the owner's actual target** (OPPO Reno15 / ColorOS 16). The POCO X3
    Pro has now run the release APK, the instrumented suites, a real merged download, real Facebook
    extraction and the engine refresh; **nothing has run on ColorOS**, and the bubble overlay plus
@@ -339,17 +348,21 @@ missing functionality.
    Quick Panel and onboarding-inset checks. Still untested are predictive-back ordering through every
    nested sheet/dialog, gesture-vs-3-button navigation, cutouts, rotation, IME, and tablet/foldable
    layouts. These are compatibility-depth items, not known failures.
-4. **Two small verifications left over from the engine refresh** (`TEST_REPORT.md` §19.6): the manual
-   **Check** button in *Settings → Enhanced features → Site engine* has been compiled and unit tested
-   but never tapped on a device; and the weekly refresh's "not due yet" path is proven only by the
-   second refresh in one run reporting `AlreadyCurrent` without re-downloading.
+4. **CLOSED this round — both engine-refresh verifications.** Tapping the manual **Check** button on the
+   POCO (2026-09-18) found and fixed a real defect: `YtDlpRuntime.engineVersion`/`refreshEngine` went
+   straight to `YtDlpUpdater` without calling `ensureReady()`, so on a fresh process the row read
+   "Version not reported yet" and the button answered `instance not initialized`. With the fix the row
+   reads `Version 2026.08.19` on open and **Check** reports `Already up to date (2026.08.19)` after
+   staging and checksum-verifying the published release. The same run observed the weekly "not due yet"
+   path directly: `refresh: Skipped(reason=the engine was checked 0 hours ago)`. `TEST_REPORT.md` §40.
 5. **Push + GitHub Release — the only remaining step, and it is the owner's call.** The signed release
    is built, hashed and archived (`artifacts\releases\LinksiEnhanced_3.1.1-enhanced.3_*`), and both
    scripts work (`scripts\push-to-private-repo.ps1 -CreateRepo`, `scripts\create-github-release.ps1`).
    Both need a token at `E:\Deepseek\Linksi\keys\github-token.txt` (classic, scopes `repo` +
    `workflow`). **The previous token is in an old transcript — do not reuse it.** Do not push until the
-   owner says the work is final. Note the branch has **never been committed** with any of this work:
-   the tree is dirty and `latest-build.json` records `uncommitted: yes`.
+   owner says the work is final. **The tree is now committed** — the whole enhancement set is local
+   commit `4c1d0b8` on `enhanced/integration`, which has no upstream. Any later edits (including the
+   release rebuild below) are uncommitted again until they are added.
 6. **The wrapper's process kill cannot be fixed from here.** `destroyProcessById` passes the
    library's own UUID to `pstree` (which does not exist on Android), and `grep -oP` is not in toybox,
    so only `Process.destroy()` — SIGTERM to the direct python child — ever runs, and descendants
