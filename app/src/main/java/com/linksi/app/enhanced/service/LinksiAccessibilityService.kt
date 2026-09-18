@@ -112,6 +112,22 @@ class LinksiAccessibilityService : AccessibilityService() {
             serviceInfo = info
         }
         refreshSettings(force = true)
+
+        // One-time, debug-only probe of whether this service may read the clipboard while it is not
+        // the foreground app.
+        //
+        // The clipboard fallback depends on that permission, and Android 10+ restricts background
+        // clipboard reads without guaranteeing an accessibility service an exemption. Rather than
+        // assume either way, the fact is established once at connect and logged in a debug build. No
+        // clip content is logged - only whether a read was permitted and whether it held a URL.
+        if (BuildConfig.DEBUG) {
+            val probe = runCatching { ClipboardUrlReader.readFromService(this) }.getOrNull()
+            android.util.Log.i(
+                TAG_DEBUG,
+                "clipboard probe at connect: readable=${probe?.readable == true} " +
+                    "foundUrl=${probe?.url != null}"
+            )
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -145,6 +161,7 @@ class LinksiAccessibilityService : AccessibilityService() {
             val selectionInput = readEvent(event)
             val selected = UrlTextExtractor.firstActionableUrl(selectionInput?.text)
                 ?: UrlTextExtractor.firstActionableUrl(selectionInput?.contentDescription)
+                ?: selectedTextFromWindow()
 
             // The clipboard as it stands *before* this interaction, so a clip that has not changed
             // cannot be mistaken for a fresh copy. Read best-effort: the platform may refuse a
@@ -173,7 +190,21 @@ class LinksiAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 2. A burst of events for one user action must not queue up work.
+        // 2. A copy-shaped interaction is handled BEFORE the burst filter.
+        //
+        // This ordering is the whole reason copying did not work in a browser. A WebView emits a
+        // continuous stream of window-content events, so the 1.5 s interval was almost always already
+        // "spent" by the time the user's click on Copy arrived - and that click was discarded at this
+        // very line, before anything could look at it. Measured on the OPPO: three copies in Brave
+        // produced a VIEW_CLICKED at 13:03:04.184 that never reached a single line of detection code.
+        //
+        // A click is rare and cheap, so it is never rate-limited; the interval still throttles the
+        // heuristic path below, which is what it was for.
+        if (type == CopyEventType.VIEW_CLICKED) {
+            handleCopyClick(packageName)
+        }
+
+        // 3. A burst of events for one user action must not queue up work.
         val now = SystemClock.elapsedRealtime()
         if (now - lastForwardedAtMs < MIN_DETECTION_INTERVAL_MS) return
 
@@ -227,46 +258,115 @@ class LinksiAccessibilityService : AccessibilityService() {
             smartLinkDetector.onLikelyUrlCopied()
             return
         }
+    }
 
-        // ── Clipboard fallback ────────────────────────────────────────────────
-        // Measured on the OPPO: selecting a link in Brave and tapping Copy produces a selection change
-        // and a click that contain **no text at all**, so no event-based rule can recover the URL
-        // (TEST_REPORT.md section 49). The copy itself, however, has landed on the clipboard - which is
-        // the same source the working paste path uses.
-        //
-        // Narrow on purpose: it runs only for a click that follows a selection in the same app within a
-        // couple of seconds, and it only counts when the clipboard has actually *changed* to an
-        // actionable URL since that selection began. A link that was already on the clipboard therefore
-        // cannot be reported as a fresh copy.
-        if (type == CopyEventType.VIEW_CLICKED &&
-            !packageName.isNullOrBlank() &&
-            System.currentTimeMillis() - selectionAtMs in 1..COPY_FALLBACK_WINDOW_MS
-        ) {
-            val afterCopy = runCatching { ClipboardUrlReader.readFromService(this) }.getOrNull()
-            val copied = afterCopy?.url
-            // Debug builds only, and deliberately content-free: it says whether the platform let a
-            // background clipboard read happen at all, which is the one fact needed to decide whether
-            // this fallback can work on a given device. No URL and no clip text is ever logged.
-            if (BuildConfig.DEBUG) {
-                android.util.Log.i(
-                    TAG_DEBUG,
-                    "clipboard fallback: readable=${afterCopy?.readable == true} " +
-                        "foundUrl=${copied != null} changed=${copied != null && copied != clipboardBeforeCopy}"
+    /**
+     * Handles a click, which is the only event a copy affordance reliably produces.
+     *
+     * Called before the burst filter, because in a WebView the interval is almost always already spent
+     * by the time the user's Copy tap arrives - which is exactly how three copies on a real device
+     * produced one click that reached no detection code at all (`TEST_REPORT.md` §49).
+     *
+     * Two things are attempted, in order of how much they know:
+     *
+     *  1. **A remembered selection.** If the browser delivered the link inside an earlier selection
+     *     event, the click resolves against it. This is the precise path and it shows a bubble only
+     *     when a real link was selected.
+     *  2. **The clipboard fallback.** Brave and WhatsApp put *no text* in either event, so the URL only
+     *     exists on the clipboard. It is accepted only when it has changed to an actionable URL since
+     *     the selection began, so a link copied earlier cannot be reported as a fresh copy.
+     */
+    private fun handleCopyClick(packageName: String?) {
+        // 1. A link the platform already told us about.
+        val remembered = recentSelection?.takeIf { it.isFresh() }
+        if (remembered != null) {
+            recentSelection = null
+            lastForwardedAtMs = SystemClock.elapsedRealtime()
+            smartLinkDetector.onLikelyUrlCopied()
+            return
+        }
+
+        // 2. The clipboard, compared against what it held before this interaction.
+        if (packageName.isNullOrBlank()) return
+        if (System.currentTimeMillis() - selectionAtMs !in 1..COPY_FALLBACK_WINDOW_MS) return
+
+        val afterCopy = runCatching { ClipboardUrlReader.readFromService(this) }.getOrNull()
+        val copied = afterCopy?.url
+        val changed = copied != null && copied != clipboardBeforeCopy
+
+        // Debug builds only, and deliberately content-free: it says whether the platform permitted a
+        // background clipboard read at all, which is the one fact needed to know whether this fallback
+        // can work on a device. No URL and no clip text is ever logged.
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                TAG_DEBUG,
+                "copy click: readable=${afterCopy?.readable == true} foundUrl=${copied != null} changed=$changed"
+            )
+        }
+
+        if (changed) {
+            CopyObservationLog.record(
+                CopyObservation(
+                    System.currentTimeMillis(), CopyEventType.VIEW_CLICKED, packageName,
+                    CopyRejection.ACCEPTED
                 )
-            }
-            if (copied != null && copied != clipboardBeforeCopy) {
-                CopyObservationLog.record(
-                    CopyObservation(
-                        System.currentTimeMillis(), type, packageName, CopyRejection.ACCEPTED
-                    )
-                )
-                selectionAtMs = 0
-                clipboardBeforeCopy = null
-                lastForwardedAtMs = now
-                smartLinkDetector.onLikelyUrlCopied()
-            }
+            )
+            selectionAtMs = 0
+            clipboardBeforeCopy = null
+            lastForwardedAtMs = SystemClock.elapsedRealtime()
+            smartLinkDetector.onLikelyUrlCopied()
         }
     }
+
+    /**
+     * The currently selected text, read from the window's node tree.
+     *
+     * This is the third and last channel for a copy that reports nothing. Measured on the OPPO:
+     *
+     *  - the **event stream** carries no link for Brave or WhatsApp (`TEST_REPORT.md` §49);
+     *  - the **clipboard** is refused to a background reader even with an accessibility service
+     *    (`clipboard probe at connect: readable=false`), so it is not a fallback at all.
+     *
+     * The service does declare `canRetrieveWindowContent`, so the window tree is still readable. A text
+     * view reports its selection through [AccessibilityNodeInfo.getTextSelectionStart] and
+     * [AccessibilityNodeInfo.getTextSelectionEnd] over its own text, which is how the selected link can
+     * be recovered even when the event does not mention it.
+     *
+     * Bounded on purpose: the walk stops at [MAX_SELECTED_TEXT] characters of any single node's text and
+     * visits at most [MAX_TREE_NODES] nodes, so a large page cannot turn this into an expensive
+     * main-thread traversal. Returns null whenever anything is missing, which leaves detection exactly
+     * as it was before this method existed.
+     */
+    private fun selectedTextFromWindow(): String? = runCatching {
+        val root = rootInActiveWindow ?: return@runCatching null
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+
+        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
+            val node = queue.removeFirst()
+            visited++
+
+            val start = node.textSelectionStart
+            val end = node.textSelectionEnd
+            val text = node.text?.toString()
+            if (start >= 0 && end > start && text != null && end <= text.length) {
+                val selected = text.substring(start, end)
+                UrlTextExtractor.firstActionableUrl(selected)?.let { return@runCatching it }
+            }
+
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let { child ->
+                    if (child.text != null && child.text.length > MAX_SELECTED_TEXT) {
+                        // Too large to be a link; skip without descending into it.
+                    } else {
+                        queue.add(child)
+                    }
+                }
+            }
+        }
+        null
+    }.getOrNull()
 
     override fun onInterrupt() {
         // Nothing to interrupt: this service holds no resources and no ongoing work.
@@ -457,5 +557,11 @@ class LinksiAccessibilityService : AccessibilityService() {
 
         /** Debug-only log tag for the clipboard fallback; a release build never writes it. */
         private const val TAG_DEBUG = "LinksiDetect"
+
+        /** Most nodes to visit when looking for a selection. A page tree can be very large. */
+        private const val MAX_TREE_NODES = 400
+
+        /** A node's text longer than this is page content, not a selectable link. */
+        private const val MAX_SELECTED_TEXT = 4096
     }
 }
