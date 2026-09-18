@@ -3408,3 +3408,85 @@ Four separate attempts failed before the event stream was simply *read*. Each at
 the platform ought to deliver; none looked at what it did. **When a heuristic repeatedly fails on real
 input, stop refining the heuristic and capture the input.** The debug-only verdict log cost about twenty
 lines and answered in one user action what three rounds of inference had not.
+
+---
+
+## 50. Addendum 39 — copy detection in third-party apps is not achievable, and that is a platform answer
+
+### 50.1 The conclusion
+
+**"Long-press a link, tap Copy" in Brave, WhatsApp or YouTube cannot be detected on this device through
+accessibility.** Every channel is closed by the platform, and this section records the measurement for
+each so the conclusion is not mistaken for giving up.
+
+### 50.2 The four channels, each measured
+
+| Channel | Measurement | Verdict |
+|---|---|---|
+| **Link inside the event** | `WINDOW_CONTENT_CHANGED … verdict=NO_TEXT` throughout; the one click seen carried no text | **No link is present** |
+| **Clipboard** | `clipboard probe at connect: readable=false` | **Refused to a background reader**, even with an accessibility service |
+| **Selection event** | `VIEW_TEXT_SELECTION_CHANGED … SELECTION_WITHOUT_A_LINK`, and on later runs no selection event at all | **Not reliably delivered for this gesture** |
+| **Clicked node's tree** | the click node was walked, ancestors and descendants, looking for a copy label plus a link | **No link found** |
+
+The last row was the final attempt: a copy in Brave produces exactly one event
+(`arrived: VIEW_CLICKED pkg=com.brave.browser`), so the node tree around that click was searched for a
+context menu carrying the link. It found none.
+
+### 50.3 The decisive observation
+
+One run produced **no events from Brave whatsoever** while the service was demonstrably alive and logging
+the launcher normally in the same window:
+
+```
+13:47:50  LinksiDetect: event=WINDOW_CONTENT_CHANGED pkg=com.android.launcher verdict=NO_TEXT
+13:47:51  LinksiDetect: event=WINDOW_STATE_CHANGED   pkg=com.android.launcher …
+```
+
+So this is not a rule being too strict, a service that is not bound, or a rate limit. **The user's action
+in Brave generates nothing for an accessibility service to observe**, and no code in the app can change
+that.
+
+### 50.4 A bug this hunt did find and fix, which matters regardless
+
+The copy-shaped handling had been placed **after** the burst filter, so a user's click on Copy was
+discarded before any detection code could look at it:
+
+> three copies in Brave produced a `VIEW_CLICKED` at `13:03:04.184` that reached no detection code at all.
+
+Clicks are now handled before the filter. This is the kind of defect that makes a *working* path look
+broken, and it would have masked any future fix.
+
+### 50.5 What does work, verified on the OPPO
+
+| Path | Status |
+|---|---|
+| **Paste a link into Linksi** | **works** — the user confirmed it, and it is the same clipboard read the panel uses |
+| **Share a link to Linksi** | **works** — the share sheet, now with the enhanced actions |
+| **External copy affordances that carry the URL** (e.g. `ACTION_PROCESS_TEXT`) | **works** — `SELECTION_REMEMBERED → ACCEPTED → bubble shown as a TYPE_APPLICATION_OVERLAY window` |
+| **Copy inside a browser or chat app** | **not detectable** — the four channels above |
+
+### 50.6 What the specification should say
+
+The specification lists smart link detection as an **optional** module that improves detection, not as a
+guarantee, and this result is consistent with that framing. The honest position for the app is:
+
+> Linksi notices many copy actions, but Android does not tell an app about every one. The reliable ways to
+> send a link to Linksi are to **share** it or to **paste** it, and both are one tap.
+
+### 50.7 Cost of this investigation, stated honestly
+
+Six rounds of user testing and five implementation attempts were spent on this gesture, and the answer
+was available from the first verdict log — a fact that should have been gathered before the second
+attempt, not the fourth. Two of my attempts (`RecentSelection`, the clipboard fallback) were built on
+assumptions the platform then contradicted, and one of them shipped to the user before being disproved.
+The lesson is in §49.6 and it cost real time to learn.
+
+### 50.8 Totals
+
+| Check | Result |
+|---|---|
+| Channels investigated | **4**, each with a device measurement |
+| Channels available | **0** for this gesture |
+| Real defects found during the hunt | **2** — the false "not connected" status, and clicks discarded before the filter |
+| Working paths on the device | **3** — share, paste, and URL-carrying copy affordances |
+| `:app:testDebugUnitTest` | **782 tests, 0 failures** at `7739221` |
