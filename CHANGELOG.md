@@ -276,6 +276,16 @@ find. Full detail in `TEST_REPORT.md` §39–§41.
   two short links that redirect to a site's home page — properties of the links, not the app. Instagram,
   Pinterest and Reddit had been recorded as an unfixable gap because they cannot be self-served from
   this machine; with real input they took one batch to prove.
+- **Pinterest share links kept their tracking parameters.** Pinterest's share sheet produces
+  `…/pin/<id>/sent/?invite_code=…&sender=…&sfo=1`, and the URL cleaner only removes *known* tracking
+  parameters — an explicit list, the `utm_` family, and a Facebook-only set. Pinterest's names were in
+  none of them, so a pinned link kept `invite_code` (a per-share secret) forever. Measured on the POCO
+  first: all three parameters **and** the `/sent/` segment are unnecessary — the full share URL, the URL
+  with the query removed, and the canonical `/pin/<id>/` form all extract to the same title, uploader,
+  duration and formats. The fix adds a Pinterest host-scoped parameter set alongside the existing
+  Facebook one (`invite_code`, `sender`, `sfo`), and `/sent/` is deliberately left in place because
+  rewriting a path is a larger change than dropping a query parameter. Seven unit tests, including that
+  the rule does **not** apply on other hosts that use the same generic names. `TEST_REPORT.md` §43.
 - **A false-alarm assertion was removed from `RealSiteLinksInstrumentedTest`.** It failed the whole
   suite with "the detector did not recognise a real video link" when the *engine* refused a short link
   that redirects to a site's home page. The detector had classified it correctly, and the app's own

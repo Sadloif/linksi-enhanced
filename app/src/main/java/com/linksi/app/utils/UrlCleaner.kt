@@ -64,6 +64,30 @@ object UrlCleaner {
     private val FACEBOOK_HOSTS: Set<String> = setOf("facebook.com", "fb.watch", "fb.com", "fb.gg")
 
     /**
+     * Pinterest's share-tracking parameters, applied only on Pinterest hosts for the same reason as
+     * the Facebook set: the names are generic.
+     *
+     * Pinterest's share sheet appends these to a pin URL:
+     * `…/pin/558164947591272325/sent/?invite_code=…&sender=…&sfo=1`. Measured on the POCO on
+     * 2026-09-18, removing all three changes nothing about extraction - the full share URL, the URL
+     * with the query stripped and the canonical `/pin/<id>/` form all returned the same title,
+     * uploader, duration and six formats. So they are removable, and until this rule existed the
+     * cleaner left them in place (`invite_code` in particular is a per-share secret).
+     *
+     * The `/sent/` path segment is deliberately **left alone**: it does not affect extraction, and
+     * rewriting a path is a larger change than dropping a query parameter. Only whole segments with
+     * no content role are safe to remove, and this one is a verb, not an identifier.
+     */
+    val PINTEREST_TRACKING_PARAMETERS: Set<String> = setOf(
+        "invite_code",
+        "sender",
+        "sfo"
+    )
+
+    /** Hosts that the Pinterest specific rules apply to (compared case insensitively). */
+    private val PINTEREST_HOSTS: Set<String> = setOf("pinterest.com", "pin.it")
+
+    /**
      * @param removeTrackingParameters remove known tracking parameters (spec 9.3 / 9.4).
      * @param removeEmptyParameters    also drop `key=` parameters that carry no value. Off by
      *                                 default: an empty value can be meaningful on some sites.
@@ -189,6 +213,7 @@ object UrlCleaner {
         if (query != null) {
             val kept = mutableListOf<String>()
             val facebook = isFacebookHost(host)
+            val pinterest = isPinterestHost(host)
             for (segment in query.split('&')) {
                 if (segment.isEmpty()) continue // drop empty segments such as "&&" or a trailing "&"
 
@@ -197,7 +222,8 @@ object UrlCleaner {
                 val value = if (hasValue) segment.substringAfter('=') else null
                 val matchKey = decodePercent(key).lowercase()
 
-                val drop = (options.removeTrackingParameters && isTrackingParameter(matchKey, facebook)) ||
+                val drop = (options.removeTrackingParameters &&
+                    isTrackingParameter(matchKey, facebook, pinterest)) ||
                     (options.removeEmptyParameters && hasValue && value!!.isEmpty())
 
                 if (drop) {
@@ -232,18 +258,34 @@ object UrlCleaner {
         (clean(url, options) as? Result.Cleaned)?.cleanedUrl
 
     /** True when [key] (already percent decoded and case folded) is a known tracking parameter. */
-    fun isTrackingParameter(key: String, isFacebookHost: Boolean = false): Boolean {
+    fun isTrackingParameter(
+        key: String,
+        isFacebookHost: Boolean = false,
+        isPinterestHost: Boolean = false
+    ): Boolean {
         if (key.isEmpty()) return false
         if (key in TRACKING_PARAMETERS) return true
         if (TRACKING_PARAMETER_PREFIXES.any { key.startsWith(it) }) return true
-        return isFacebookHost && key in FACEBOOK_TRACKING_PARAMETERS
+        if (isFacebookHost && key in FACEBOOK_TRACKING_PARAMETERS) return true
+        return isPinterestHost && key in PINTEREST_TRACKING_PARAMETERS
     }
 
     /** True when [host] belongs to Facebook, ignoring case and a leading `www.`. */
-    fun isFacebookHost(host: String): Boolean {
+    fun isFacebookHost(host: String): Boolean = matchesHost(host, FACEBOOK_HOSTS)
+
+    /** True when [host] belongs to Pinterest, ignoring case and a leading `www.`. */
+    fun isPinterestHost(host: String): Boolean = matchesHost(host, PINTEREST_HOSTS)
+
+    /**
+     * True when [host] is one of [hosts] or a subdomain of one, ignoring case.
+     *
+     * The `endsWith(".$it")` test is what keeps this from matching a lookalike such as
+     * `notfacebook.com`, which a bare `contains` would wrongly accept.
+     */
+    private fun matchesHost(host: String, hosts: Set<String>): Boolean {
         val normalized = host.lowercase()
-        if (normalized in FACEBOOK_HOSTS) return true
-        return FACEBOOK_HOSTS.any { normalized.endsWith(".$it") }
+        if (normalized in hosts) return true
+        return hosts.any { normalized.endsWith(".$it") }
     }
 
     /** True when the character is legal inside a URL scheme. */

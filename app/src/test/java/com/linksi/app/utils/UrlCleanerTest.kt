@@ -504,4 +504,88 @@ class UrlCleanerTest {
         assertFalse(UrlCleaner.isTrackingParameter("referral_source"))
         assertTrue(UrlCleaner.isTrackingParameter("referral_source", isFacebookHost = true))
     }
+
+    // ── Pinterest share tracking (spec 45; measured against real share URLs) ─────
+
+    /**
+     * The exact shape Pinterest's share sheet produces, captured from the owner's own links on
+     * 2026-09-18. The values below are redacted because `invite_code` is a per-share secret and the
+     * sender id is not needed to prove the cleaner's behaviour.
+     *
+     * Extraction was measured against all three forms through the app's own extractor on the POCO:
+     * this full URL, the same URL with the query removed, and the canonical `/pin/<id>/` form all
+     * returned the same title, uploader, duration and six formats - so none of the three is needed.
+     */
+    @Test
+    fun pinterestShareTrackingIsRemoved() {
+        val url = "https://www.pinterest.com/pin/558164947591272325/sent/" +
+            "?invite_code=redacted-invite-code&sender=redacted-sender-id&sfo=1"
+        // The trailing slash goes too - that is the cleaner's general trailing-slash rule, not part
+        // of the Pinterest handling, and it applies to every URL.
+        assertEquals(
+            "https://www.pinterest.com/pin/558164947591272325/sent",
+            cleaned(url)
+        )
+        assertEquals(listOf("invite_code", "sender", "sfo"), removed(url))
+    }
+
+    @Test
+    fun pinterestShareTrackingIsRemovedOnShortLinksToo() {
+        assertEquals("https://pin.it/3IuEwLXrU", cleaned("https://pin.it/3IuEwLXrU?sender=123&sfo=1"))
+    }
+
+    @Test
+    fun pinterestTrackingNamesAreOnlyStrippedOnPinterest() {
+        // These names are generic enough that another site may use them meaningfully, so the
+        // rule is scoped to Pinterest hosts exactly as the Facebook set is scoped to Facebook.
+        val url = "https://example.com/watch?invite_code=abc&sender=me&sfo=1"
+        assertEquals(url, cleaned(url))
+        assertEquals(emptyList<String>(), removed(url))
+    }
+
+    @Test
+    fun pinterestPathSegmentIsPreserved() {
+        // `/sent/` is deliberately not rewritten: it does not affect extraction, and only a whole
+        // path segment with no content role is safe to drop. Asserted so a later change is a
+        // deliberate decision rather than an accident. (The trailing slash alone is removed by the
+        // cleaner's general rule, which is unrelated to Pinterest.)
+        assertEquals(
+            "https://www.pinterest.com/pin/558164947591272325/sent",
+            cleaned("https://www.pinterest.com/pin/558164947591272325/sent/?sfo=1")
+        )
+    }
+
+    @Test
+    fun pinterestHostDetectionIsCaseInsensitiveAndSuffixBased() {
+        assertTrue(UrlCleaner.isPinterestHost("pinterest.com"))
+        assertTrue(UrlCleaner.isPinterestHost("www.pinterest.com"))
+        assertTrue(UrlCleaner.isPinterestHost("uk.pinterest.com"))
+        assertTrue(UrlCleaner.isPinterestHost("PINTEREST.COM"))
+        assertTrue(UrlCleaner.isPinterestHost("pin.it"))
+        assertFalse(UrlCleaner.isPinterestHost("notpinterest.com"))
+        assertFalse(UrlCleaner.isPinterestHost("example.com"))
+        // The two host sets must not leak into each other.
+        assertFalse(UrlCleaner.isPinterestHost("facebook.com"))
+        assertFalse(UrlCleaner.isFacebookHost("pin.it"))
+    }
+
+    @Test
+    fun pinterestTrackingPredicateIsScopedToItsHost() {
+        assertFalse(UrlCleaner.isTrackingParameter("invite_code"))
+        assertFalse(UrlCleaner.isTrackingParameter("sender"))
+        assertFalse(UrlCleaner.isTrackingParameter("sfo"))
+        assertTrue(UrlCleaner.isTrackingParameter("invite_code", isPinterestHost = true))
+        assertTrue(UrlCleaner.isTrackingParameter("sender", isPinterestHost = true))
+        assertTrue(UrlCleaner.isTrackingParameter("sfo", isPinterestHost = true))
+        // Not applicable to Facebook, and vice versa.
+        assertFalse(UrlCleaner.isTrackingParameter("sfo", isFacebookHost = true))
+        assertFalse(UrlCleaner.isTrackingParameter("referral_source", isPinterestHost = true))
+    }
+
+    @Test
+    fun pinterestCleaningIsIdempotent() {
+        val url = "https://www.pinterest.com/pin/558164947591272325/sent/?invite_code=a&sender=b&sfo=1"
+        val once = cleaned(url)
+        assertEquals(once, cleaned(once))
+    }
 }

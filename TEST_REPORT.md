@@ -2799,3 +2799,87 @@ This is the second time this session that a test's own expectation was the defec
 Instagram, Pinterest and Reddit were previously reported as an unfixable gap because they cannot be
 self-served from this machine (§32.2). With real links they took one batch to prove. **The gap was never
 the code; it was the input.**
+
+---
+
+## 43. Addendum 32 — Pinterest share links, and a cleaner rule they justified
+
+### 43.1 What the owner sent, and the two questions it raised
+
+The owner supplied Pinterest's **expanded share form**, which is what Pinterest's own share sheet
+produces — the same three pins as his short links, but with a path segment and tracking parameters:
+
+```
+https://www.pinterest.com/pin/558164947591272325/sent/?invite_code=redacted…&sender=redacted&sfo=1
+                        └── pin id ──┘ └────┘ └── per-share secret ──┘ └─ sharer id ─┘ └ flag ┘
+```
+
+Two questions follow, and they have different answers:
+
+1. Can the extractor handle the `/sent/` path and the extra parameters? — **yes**.
+2. Should the URL cleaner strip them? — **the parameters yes, the path segment no**.
+
+### 43.2 What the engine actually needs — measured, not assumed
+
+Each pin was probed in three forms through the app's own extractor on the POCO:
+
+| Form | Result |
+|---|---|
+| Full share URL, parameters and `/sent/` intact | *Slow motion ❤️‍🔥*, `actress lunatic`, 16 s, 6 formats |
+| `/sent/` kept, all three parameters removed | **identical** |
+| Canonical `/pin/<id>/`, no `/sent/`, no parameters | **identical** |
+
+All three produced the same title, uploader, duration and format list, so **none of the three
+parameters nor the `/sent/` segment is load-bearing**. More importantly, nothing had to be *added* to
+`YtDlpExtractor` — it already handled the share form, which is a useful result in itself.
+
+### 43.3 The defect: the cleaner was leaving Pinterest's tracking on
+
+`UrlCleaner` removes only *known* tracking parameters — an explicit list, plus the `utm_` family, plus a
+**Facebook-only** set applied when the host is Facebook. Pinterest's names were in none of those, so a
+pinned link kept `invite_code=…` forever. `invite_code` is a per-share secret, and the specification's
+whole purpose for the cleaner is that a saved link is the clean one.
+
+The fix follows the existing Facebook precedent exactly:
+
+```kotlin
+val PINTEREST_TRACKING_PARAMETERS: Set<String> = setOf("invite_code", "sender", "sfo")
+private val PINTEREST_HOSTS: Set<String> = setOf("pinterest.com", "pin.it")
+```
+
+`isTrackingParameter` gained an `isPinterestHost` flag, and the duplicated host-matching logic became one
+`matchesHost` helper, so `isFacebookHost` and `isPinterestHost` cannot drift apart. The `endsWith(".$it")`
+subdomain test is retained, which is what stops `notpinterest.com` from matching — asserted directly.
+
+**The `/sent/` path segment is deliberately preserved.** It does not affect extraction, and rewriting a
+path is a larger and riskier change than dropping a query parameter; only a whole path segment with no
+content role would be safe to remove, and this one is a verb, not an identifier. A test asserts it is
+preserved so a future change to that behaviour has to be deliberate.
+
+### 43.4 Seven unit tests, and one expectation of mine that was wrong
+
+`UrlCleanerTest` gained seven cases: the exact owner-supplied URL shape, the `pin.it` short form, the
+same parameter names on a **non-Pinterest** host (which must be left alone — the reason the rule is
+host-scoped), `/sent/` preservation, host detection including the `notpinterest.com` negative and that
+the two host sets do not leak into each other, the predicate scoping, and idempotence.
+
+Two of them failed on the first run, and **the tests were wrong, not the code**: I had written the
+expected output with a trailing slash, but `UrlCleaner` removes a trailing slash as a general rule for
+every URL. The actual output was `…/sent` without it. Corrected, and the trailing-slash removal is now
+noted in the test so the next reader does not repeat it. `UrlCleanerTest` is **68 tests** in total.
+
+### 43.5 Totals
+
+| Check | Result |
+|---|---|
+| Pinterest share form extracts | **PASS — 3 forms × 3 pins, all extracted identically** |
+| Extractor changes needed | **none** — the share form already worked |
+| Cleaner change | `invite_code`, `sender`, `sfo` removed on Pinterest hosts only |
+| New unit tests | **7** (`UrlCleanerTest`, now 68 tests) |
+| `:app:testDebugUnitTest` | **754 tests, 0 failures** |
+| `:app:lintDebug` | **0 errors** |
+| Release artifacts | rebuilt — `src/main` changed |
+
+This is the fourth defect found by driving the app with real input rather than fixtures, and the second
+one this session where the *test's* expectation was the thing at fault. Both patterns are recorded as
+traps in `SESSION_HANDOVER.md` §5.
