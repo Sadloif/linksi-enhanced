@@ -374,7 +374,12 @@ class LinksiAccessibilityService : AccessibilityService() {
      * exactly as it was before this method existed.
      */
     private fun clickContextUrl(event: AccessibilityEvent): String? = runCatching {
-        val clicked = event.source ?: return@runCatching null
+        val clicked = event.source ?: run {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.i(TAG_DEBUG, "tree: event.source was NULL - nothing to walk")
+            }
+            return@runCatching null
+        }
 
         // The chain: the clicked node and its ancestors, which is where a menu container lives.
         val chain = mutableListOf<AccessibilityNodeInfo>()
@@ -384,6 +389,18 @@ class LinksiAccessibilityService : AccessibilityService() {
             chain.add(current)
             current = current.parent
             hops++
+        }
+
+        if (BuildConfig.DEBUG) {
+            // What the tree actually offers at this click, so the three possibilities can be told
+            // apart rather than assumed: the source may be null, the menu may be in another window, or
+            // the menu may expose neither a copy label nor the link. Content-free summary only.
+            val summary = chain.joinToString(" | ") { node ->
+                val children = node.childCount
+                val label = LabelSnippet.of(true, node.contentDescription?.toString(), node.text?.toString())
+                "${node.className?.toString()?.substringAfterLast('.')}(kids=$children,label=$label)"
+            }
+            android.util.Log.i(TAG_DEBUG, "tree depth=${chain.size} nodes: $summary")
         }
 
         for (anchors in chain) {
