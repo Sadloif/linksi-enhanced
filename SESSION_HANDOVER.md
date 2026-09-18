@@ -392,11 +392,14 @@ with verified digests and signature).
 What follows is what remains: two items that need the owner or his hardware, and three that
 are depth or external.
 
-1. **Physical-device testing on the owner's actual target** (OPPO Reno15 / ColorOS 16). The POCO X3
-   Pro has now run the release APK, the instrumented suites, a real merged download, real extraction
-   from all five named sites and the engine refresh; **nothing has run on ColorOS**, and the bubble
-   overlay plus Android 14+/15 background-activity launch are still unverified there. This is the
-   highest-value remaining item, and it needs the owner's phone.
+1. **CLOSED on 2026-09-18 — the owner's OPPO `CPH2825` (ColorOS 16 / Android 16) has been tested.** It
+   found four things the POCO never could, all fixed except the last: the accessibility service was
+   **enabled but not bound** (ColorOS quirk, no force-stop needed); all three detection switches default
+   to `false` and the UI never said two of them were required for detection; the status panel reported
+   "not connected" for a working service; and copy-shaped clicks were being **discarded by the burst
+   rate-limit before any detection code ran**. The remaining item is unresolvable in-app: **copying a
+   link inside a browser or chat app is not detectable on Android 16** — see `TEST_REPORT.md` §47–§50 and
+   `RESEARCH_COPY_DETECTION_ANDROID16.md`. Do not spend further rounds on it without new evidence.
 2. **Broaden Android 16 UI coverage.** API 36 now passes target-SDK, core-flow, Share Receiver,
    Quick Panel and onboarding-inset checks. Still untested are predictive-back ordering through every
    nested sheet/dialog, gesture-vs-3-button navigation, cutouts, rotation, IME, and tablet/foldable

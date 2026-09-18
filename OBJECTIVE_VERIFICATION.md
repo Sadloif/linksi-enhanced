@@ -103,7 +103,7 @@ Stated so that completion of the objective is not mistaken for the absence of li
 
 | Item | Status |
 |---|---|
-| **Testing on the owner's own phone (OPPO Reno15 / ColorOS 16)** | **Not done.** Every device result is from a POCO X3 Pro (Android 13 / MIUI 14); API 36 results are from an emulator. ColorOS behaviour is unverified |
+| **Testing on the owner's own phone** | **Done as of 2026-09-18.** The OPPO `CPH2825` (ColorOS 16, Android 16 / SDK 36) has now run the app; the field findings are in `TEST_REPORT.md` §47–§50. Everything before §47 was a POCO X3 Pro (Android 13 / MIUI 14) or an API 36 emulator. One finding is unresolved and documented as a platform limit, not a defect: copying a link inside a browser or chat app is not detectable (`RESEARCH_COPY_DETECTION_ANDROID16.md`) |
 | API 36 UI depth | Predictive-back ordering through nested sheets, rotation, cutouts, IME, tablet/foldable layouts — untested. Compatibility depth, not known failures |
 | `POST_NOTIFICATIONS` dialog | Seen in context on the emulator (§27); not walked through end-to-end on the POCO |
 | Reminders | Broken **upstream**, not fixed |

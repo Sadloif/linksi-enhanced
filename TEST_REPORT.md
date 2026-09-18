@@ -3121,9 +3121,12 @@ recorded commit, tree state and source timestamps do not line up is not evidence
 
 Completing the objective is not the same as having no limits, and the honest qualification is:
 
-- **Nothing has run on the owner's actual phone** (OPPO Reno15 / ColorOS 16). Every device result is a
-  POCO X3 Pro (Android 13 / MIUI 14) or an API 36 emulator. This is the highest-value remaining work and
-  it needs the owner's hardware.
+- ~~**Nothing has run on the owner's actual phone.**~~ **Superseded on 2026-09-18.** The owner's OPPO
+  `CPH2825` (ColorOS 16, Android 16 / SDK 36) is now under test, and the results are in §47–§50: the
+  accessibility service was found enabled-but-unbound, three switches defaulted off with no UI guidance,
+  the status panel was wrong, clicks were being discarded before detection ran, and copy detection in
+  browsers was shown to be a platform limit. Everything before §47 in this report is POCO X3 Pro
+  (Android 13 / MIUI 14) or API 36 emulator evidence.
 - API 36 UI depth (predictive-back ordering through nested sheets, rotation, cutouts, IME,
   tablet/foldable) is untested — compatibility depth, not known failures.
 - The licence question is unresolved by the owner's own direction (`LICENSE_REVIEW.md`).
