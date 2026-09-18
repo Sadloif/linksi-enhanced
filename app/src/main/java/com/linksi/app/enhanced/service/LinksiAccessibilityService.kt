@@ -200,21 +200,24 @@ class LinksiAccessibilityService : AccessibilityService() {
 
         // A browser long-press does not reliably produce any event this service can use - measured: a
         // copy in Brave delivered no selection event and, on a later run, nothing at all. But the link
-        // IS on screen, in the WebView's node extras, so the window is examined when something suggests
-        // a link action is under way.
+        // IS on screen, in the WebView's node extras. So the window is examined whenever something
+        // suggests a link action may be under way.
         //
-        // ONLY on those signals - deliberately NOT on TYPE_WINDOW_CONTENT_CHANGED, which is what this
-        // used to do and which was wrong. A scrolling feed emits content changes continuously, so
-        // triggering on them meant the bubble was driven by "a link exists somewhere" rather than by
-        // anything the user did, and it arrived whenever the next content change happened to occur.
-        // Reported from the field as: copy a link in Facebook Reels and nothing appears; scroll away
-        // and the bubble appears - a bubble at the wrong moment, which is worse than none.
+        // THIS INCLUDES TYPE_WINDOW_CONTENT_CHANGED, and that is a deliberate trade-off rather than an
+        // oversight. Content changes are what a scrolling feed emits continuously, so triggering on them
+        // means the bubble can arrive a moment after the copy - reported from the field as "I copy in
+        // Facebook Reels, nothing appears, I scroll out and the bubble appears".
         //
-        // The two triggers now are the ones that mean "the user is interacting with a link":
-        //  - a selection change, which a long-press produces (and which long-press on a page link also
-        //    produces in several apps);
-        //  - a new window, which is how a context menu announces itself.
-        if (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
+        // Restricting this to selection and window changes was tried and reverted: it produced NO bubble
+        // at all in the runs where Chromium did not expose its link metadata, which is worse in use than
+        // a bubble that is sometimes late. The underlying data is simply not dependable - the same
+        // gesture on the same browser yielded nine link nodes one minute and none the next - so this
+        // feature is best-effort, and the user chose "the bubble appears" over "nothing appears".
+        //
+        // Throttled, because each scan is a bounded but real tree walk on the MAIN THREAD.
+        if (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED ||
+            type == CopyEventType.WINDOW_CONTENT_CHANGED
+        ) {
             val nowMs = SystemClock.elapsedRealtime()
             if (nowMs - lastTreeScanAtMs >= TREE_SCAN_INTERVAL_MS) {
                 lastTreeScanAtMs = nowMs
