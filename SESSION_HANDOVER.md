@@ -404,13 +404,27 @@ are depth or external.
    Quick Panel and onboarding-inset checks. Still untested are predictive-back ordering through every
    nested sheet/dialog, gesture-vs-3-button navigation, cutouts, rotation, IME, and tablet/foldable
    layouts. These are compatibility-depth items, not known failures.
-3. **Push + GitHub Release — the owner's call, and he has said "not yet".** The signed release is
-   built, hashed and archived (`artifacts\releases\LinksiEnhanced_3.1.1-enhanced.3_*`), and both scripts
-   work (`scripts\push-to-private-repo.ps1 -CreateRepo`, `scripts\create-github-release.ps1`). Both need
-   a token at `E:\Deepseek\Linksi\keys\github-token.txt` (classic, scopes `repo` + `workflow`). **The
-   previous token is in an old transcript — do not reuse it.** Do not push until the owner says the work
-   is final. **The tree is committed** on `enhanced/integration` (which has no upstream); check
-   `git status` rather than trusting any hash written here, since later edits become uncommitted again.
+3. **CLOSED 2026-09-18 — pushed and released.** The owner authorised publication and supplied a token.
+   `enhanced/integration` and `master` are both at `9a16432` on `Sadloif/linksi-enhanced`, the default
+   branch is now `enhanced/integration`, and release
+   [`v3.1.1-enhanced.3`](https://github.com/Sadloif/linksi-enhanced/releases/tag/v3.1.1-enhanced.3) carries
+   both APKs plus their `.sha256` files and `latest-build.json`.
+
+   **Two environment facts that will otherwise cost time:**
+   - `git` and `curl` cannot reach GitHub here — `schannel: AcquireCredentialsHandle failed:
+     SEC_E_NO_CREDENTIALS`. It is a broken Windows TLS stack, not the token. **Fix: `git config
+     http.sslBackend openssl`**, after which `git push` works normally. API calls go through
+     `tools\github\*.java`, which use the JVM's own TLS. See `tools\github\README.md`.
+   - The push scripts this handover used to name (`scripts\push-to-private-repo.ps1`,
+     `scripts\create-github-release.ps1`) **never existed**. The tooling is now `tools\github\`.
+
+   Nothing was destroyed: the first push to each branch was a **fast-forward** (local was 69 commits ahead
+   of `origin/master` and had none of its own missing), and every pre-existing remote branch was backed up
+   as `backup/pre-replace-20260918/*` on the remote and locally before anything was written. The old
+   per-feature branches (`feature/*`, `chore/github-actions`) are deliberately left untouched.
+
+   Regenerate the release with `tools\build-release.ps1 -SkipChecks`, then follow `tools\github\README.md`.
+   The token stays at `E:\Deepseek\Linksi\keys\github-token.txt`, outside the repository.
 4. **The wrapper's process kill cannot be fixed from here.** `destroyProcessById` passes the
    library's own UUID to `pstree` (which does not exist on Android), and `grep -oP` is not in toybox,
    so only `Process.destroy()` — SIGTERM to the direct python child — ever runs, and descendants
