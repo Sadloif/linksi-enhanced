@@ -15,6 +15,7 @@ import com.linksi.app.enhanced.detect.CopyObservation
 import com.linksi.app.enhanced.detect.CopyObservationLog
 import com.linksi.app.enhanced.detect.CopyRejection
 import com.linksi.app.enhanced.detect.LikelyCopyDetector
+import com.linksi.app.enhanced.detect.RecentSelection
 import com.linksi.app.enhanced.detect.SmartLinkDetector
 import com.linksi.app.enhanced.detect.UrlTextExtractor
 import com.linksi.app.utils.dataStore
@@ -75,6 +76,15 @@ class LinksiAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastForwardedAtMs: Long = 0
 
+    /**
+     * The link from the most recent text selection, so a following "Copy" tap can be resolved.
+     *
+     * `@Volatile` because it is written on the main thread and read on the same thread, but the field
+     * must not be hoisted across the coroutine boundary that the detector may run behind.
+     */
+    @Volatile
+    private var recentSelection: RecentSelection? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // The configuration lives in res/xml/accessibility_service_config.xml. An OEM or a user can
@@ -131,14 +141,31 @@ class LinksiAccessibilityService : AccessibilityService() {
             return
         }
 
+        // A selection change that carries a link is remembered briefly. The platform then delivers the
+        // user's "Copy" tap as a *separate* click with no URL in it, and without this the most common
+        // copy there is - select a link, tap Copy - has nothing to resolve against. See RecentSelection
+        // for the bounds on what is retained (one URL, five seconds, memory only, dropped on use).
+        if (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
+            UrlTextExtractor.firstActionableUrl(input.text)?.let { selected ->
+                recentSelection = RecentSelection(selected, System.currentTimeMillis())
+            }
+        }
+
         // 3. Pure heuristic, no I/O. The "with reason" form returns exactly the same CopyDetection the
         //    plain form would, and additionally says which rule decided.
-        val (detection, rejection) = LikelyCopyDetector.detectWithReason(input, cachedIgnoredPackages)
+        val (detection, rejection) = LikelyCopyDetector.detectWithReason(
+            input = input,
+            ignoredPackages = cachedIgnoredPackages,
+            recentSelection = recentSelection
+        )
         CopyObservationLog.record(
             CopyObservation(System.currentTimeMillis(), type, packageName, rejection)
         )
         if (detection !is CopyDetection.Detected) return
 
+        // Consume it: one selection may explain at most one copy, so a later unrelated click cannot
+        // reuse it.
+        recentSelection = null
         lastForwardedAtMs = now
         // The URL itself is deliberately not passed on: the bubble only signals "a link may be
         // there", and the clipboard is read later from the foreground activity (section 11.1).

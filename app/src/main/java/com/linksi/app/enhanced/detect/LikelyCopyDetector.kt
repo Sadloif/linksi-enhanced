@@ -41,15 +41,29 @@ object LikelyCopyDetector {
      * final and equally privacy-preserving. [ignoredPackages] entries match either exactly
      * (`com.example.bank`) or as a package prefix (`com.example.` excludes every `com.example.*`
      * package); an empty list disables only that rule (section 11.3.10).
+     *
+     * [recentSelection] is the URL from a very recent text selection, and it is what makes the most
+     * common real copy work. When a user selects a link and taps "Copy" in the selection toolbar, the
+     * platform delivers two separate events: a selection change carrying the link, then a click on the
+     * "Copy" button carrying **no URL at all**. Judged alone the click has a copy label but nothing to
+     * copy, so it was rejected - which is why copying in a browser or a chat app did nothing while
+     * pasting inside Linksi (a different, URL-carrying path) worked.
      */
-    fun detect(input: CopyEventInput, ignoredPackages: Collection<String> = emptyList()): CopyDetection {
+    fun detect(
+        input: CopyEventInput,
+        ignoredPackages: Collection<String> = emptyList(),
+        recentSelection: RecentSelection? = null
+    ): CopyDetection {
         if (input.isPassword || input.isSensitiveField) return CopyDetection.PASSWORD_FIELD
         if (isIgnoredPackage(input.packageName, ignoredPackages)) return CopyDetection.IGNORED_PACKAGE
 
         val copySignal = hasCopySignal(input) || looksLikeSelectionToolbarAction(input)
         if (!copySignal) return CopyDetection.NO_COPY_SIGNAL
 
-        val source = urlSource(input) ?: return CopyDetection.NO_URL
+        // Prefer what the event itself carries; fall back to the selection the Copy button refers to.
+        val source = urlSource(input)
+            ?: recentSelection?.takeIf { it.isFresh() }?.url
+            ?: return CopyDetection.NO_URL
         val url = source.firstActionableUrl() ?: return CopyDetection.NO_URL
 
         return CopyDetection.Detected(
@@ -212,7 +226,8 @@ object LikelyCopyDetector {
      */
     fun detectWithReason(
         input: CopyEventInput?,
-        ignoredPackages: Collection<String> = emptyList()
+        ignoredPackages: Collection<String> = emptyList(),
+        recentSelection: RecentSelection? = null
     ): Pair<CopyDetection, CopyRejection> {
         if (input == null) return CopyDetection.NO_COPY_SIGNAL to CopyRejection.NO_TEXT
 
@@ -225,7 +240,9 @@ object LikelyCopyDetector {
         val copySignal = hasCopySignal(input) || looksLikeSelectionToolbarAction(input)
         if (!copySignal) return CopyDetection.NO_COPY_SIGNAL to CopyRejection.NO_COPY_SIGNAL
 
-        val source = urlSource(input) ?: return CopyDetection.NO_URL to CopyRejection.NO_URL
+        val source = urlSource(input)
+            ?: recentSelection?.takeIf { it.isFresh() }?.url
+            ?: return CopyDetection.NO_URL to CopyRejection.NO_URL
         val url = source.firstActionableUrl() ?: return CopyDetection.NO_URL to CopyRejection.NO_URL
 
         return CopyDetection.Detected(url = url, textWasUrl = source.trim() == url) to
@@ -279,6 +296,33 @@ data class CopyObservation(
     val packageName: String?,
     val rejection: CopyRejection
 )
+
+/**
+ * The URL from a very recent text selection, so a following "Copy" click can be resolved.
+ *
+ * Holding this at all is a deliberate, bounded exception to the rule that nothing is retained. The
+ * bounds are what make it acceptable:
+ *
+ *  - it is one URL, not a history;
+ *  - it lives for [MAX_AGE_MS] milliseconds and is discarded on use, so it cannot outlive the copy it
+ *    belongs to;
+ *  - it is in memory only and is never written anywhere;
+ *  - it holds only what the user had already selected on screen, which the platform had already
+ *    handed to this service in the selection event.
+ *
+ * Without it, the most common copy in the world - select a link, tap Copy - is invisible, because that
+ * click carries no URL.
+ */
+data class RecentSelection(val url: String, val atMs: Long) {
+
+    /** True while this selection is still plausibly the subject of a copy click. */
+    fun isFresh(now: Long = System.currentTimeMillis()): Boolean = now - atMs in 0..MAX_AGE_MS
+
+    companion object {
+        /** How long a selection stays eligible. Long enough for a considered tap, short enough to expire. */
+        const val MAX_AGE_MS = 5_000L
+    }
+}
 
 /**
  * Everything the heuristic is allowed to know about one accessibility event.

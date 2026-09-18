@@ -473,4 +473,68 @@ class LikelyCopyDetectorTest {
             )
         )
     }
+
+    // ── Select a link, then tap "Copy" (the owner's WhatsApp/Brave case) ──────
+
+    /**
+     * The exact flow the owner reported failing: select a link in another app and tap **Copy**. The
+     * platform delivers that as a click on a control labelled "Copy" with **no URL in the event**, so
+     * on its own it has a copy label and nothing to copy - which is why it was rejected while pasting
+     * inside Linksi worked.
+     *
+     * The URL comes from the selection the click refers to.
+     */
+    @Test
+    fun aCopyClickResolvesToTheJustSelectedUrl() {
+        // `atMs` is the wall clock, so a genuinely fresh selection has to be stamped relative to now.
+        val selection = RecentSelection("https://example.com/selected", atMs = System.currentTimeMillis())
+        val copyClick = click(description = "Copy")
+
+        val result = LikelyCopyDetector.detect(
+            copyClick,
+            ignoredPackages = emptyList(),
+            recentSelection = selection
+        )
+        assertTrue("expected the click to resolve to the selection, got $result", result is CopyDetection.Detected)
+        assertEquals("https://example.com/selected", (result as CopyDetection.Detected).url)
+    }
+
+    /**
+     * The bound that makes retaining a selection acceptable: it expires. A stale selection must not
+     * let an unrelated later "Copy" tap produce a bubble.
+     */
+    @Test
+    fun aStaleSelectionIsNotUsed() {
+        val stale = RecentSelection(
+            "https://example.com/old",
+            atMs = System.currentTimeMillis() - RecentSelection.MAX_AGE_MS - 1
+        )
+        val result = LikelyCopyDetector.detect(
+            click(description = "Copy"),
+            ignoredPackages = emptyList(),
+            recentSelection = stale
+        )
+        assertEquals(CopyDetection.NO_URL, result)
+    }
+
+    /** With no selection at all, a bare Copy click remains unusable - correctly. */
+    @Test
+    fun aCopyClickWithNoSelectionHasNothingToCopy() {
+        assertEquals(
+            CopyDetection.NO_URL,
+            LikelyCopyDetector.detect(click(description = "Copy"), emptyList(), null)
+        )
+    }
+
+    /** A URL in the event wins over the remembered selection, which is only ever a fallback. */
+    @Test
+    fun theEventsOwnUrlWinsOverTheRememberedSelection() {
+        val selection = RecentSelection("https://example.com/old", atMs = System.currentTimeMillis())
+        val result = LikelyCopyDetector.detect(
+            click(text = "https://example.com/current", description = "Copy link"),
+            emptyList(),
+            selection
+        )
+        assertEquals("https://example.com/current", (result as CopyDetection.Detected).url)
+    }
 }

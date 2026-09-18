@@ -252,6 +252,8 @@ fun QuickPanelContent(
     QuickActionPanel(
         state = state.panel,
         callbacks = callbacks,
+        isSaving = state.isSaving,
+        saveResult = state.saveResult,
         downloadStatus = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 QuickPanelDownloadStatusCard(

@@ -34,6 +34,12 @@
     <string name="enhanced_engine_checking">Checking for a newer version\u2026</string>
     <string name="enhanced_engine_refresh">Check</string>
 
+    <!-- Quick panel: save confirmation (rendered under the SAVE section) -->
+    <string name="quick_panel_saving">Saving\u2026</string>
+    <string name="quick_panel_saved">Saved to your library</string>
+    <string name="quick_panel_already_saved">Already in your library</string>
+    <string name="quick_panel_save_failed">Could not save this link</string>
+
     <!-- Optional private server -->
     <string name="enhanced_server_fallback">Private server fallback</string>
     <string name="enhanced_server_fallback_subtitle">Ask your own server to resolve a link when the device cannot</string>

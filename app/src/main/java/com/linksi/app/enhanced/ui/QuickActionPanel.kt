@@ -90,6 +90,33 @@ data class QuickPanelCallbacks(
 )
 
 /**
+ * One line confirming what the SAVE row did.
+ *
+ * Deliberately a plain row rather than a Snackbar: the panel is a modal bottom sheet with no scaffold
+ * of its own, so a Snackbar host would have to be added to every caller. A row under the section it
+ * reports on is also where the user is already looking.
+ */
+@Composable
+private fun SaveOutcomeBanner(
+    text: String,
+    container: Color,
+    content: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = container,
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = content,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
+}
+
+/**
  * The quick action panel (specification sections 13 and 14).
  *
  * Renders exactly the actions [QuickActionModel] allows for [state]: the panel never invents a
@@ -112,6 +139,10 @@ fun QuickActionPanel(
     state: QuickPanelState,
     callbacks: QuickPanelCallbacks,
     modifier: Modifier = Modifier,
+    /** True while the SAVE row's work is in flight, so the row can say so. */
+    isSaving: Boolean = false,
+    /** What the SAVE row last did, so the panel can confirm it. */
+    saveResult: PanelSaveResult = PanelSaveResult.NONE,
     downloadStatus: (@Composable () -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -155,7 +186,11 @@ fun QuickActionPanel(
                 for (action in saveSection) {
                     QuickPanelRow(
                         icon = iconFor(action),
-                        title = titleFor(action)
+                        title = if (action == QuickAction.SAVE && isSaving) {
+                            stringResource(R.string.quick_panel_saving)
+                        } else {
+                            titleFor(action)
+                        }
                     ) {
                         when (action) {
                             QuickAction.SAVE -> callbacks.onSave()
@@ -165,6 +200,34 @@ fun QuickActionPanel(
                             else -> Unit
                         }
                     }
+                }
+
+                // Confirmation for SAVE.
+                //
+                // The view model has always computed a result here - saved, already saved, failed -
+                // and nothing ever rendered it, so saving from the bubble was silent: the link was
+                // stored and the user was told nothing. A save the user cannot see is indistinguishable
+                // from a save that did not happen, which is exactly how the owner reported it.
+                when (saveResult) {
+                    PanelSaveResult.SAVED -> SaveOutcomeBanner(
+                        text = stringResource(R.string.quick_panel_saved),
+                        container = MaterialTheme.colorScheme.primaryContainer,
+                        content = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+
+                    PanelSaveResult.ALREADY_SAVED -> SaveOutcomeBanner(
+                        text = stringResource(R.string.quick_panel_already_saved),
+                        container = MaterialTheme.colorScheme.surfaceVariant,
+                        content = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    PanelSaveResult.FAILED -> SaveOutcomeBanner(
+                        text = stringResource(R.string.quick_panel_save_failed),
+                        container = MaterialTheme.colorScheme.errorContainer,
+                        content = MaterialTheme.colorScheme.onErrorContainer
+                    )
+
+                    PanelSaveResult.NONE -> Unit
                 }
             }
 
