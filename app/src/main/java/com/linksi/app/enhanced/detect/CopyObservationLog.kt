@@ -1,5 +1,7 @@
 package com.linksi.app.enhanced.detect
 
+import android.util.Log
+import com.linksi.app.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +26,8 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object CopyObservationLog {
 
+    private const val TAG = "LinksiDetect"
+
     /** Enough to see the burst produced by one copy action without becoming a transcript. */
     private const val CAPACITY = 12
 
@@ -36,6 +40,19 @@ object CopyObservationLog {
     @Synchronized
     fun record(observation: CopyObservation) {
         _recent.value = (_recent.value + observation).takeLast(CAPACITY)
+        // Debug builds only: one line per judged event, so the verdict can be watched live with
+        // `adb logcat -s LinksiDetect:V` instead of asking the user to switch back to the app and read
+        // a panel. Contains the event type, the package and the verdict code - never any text, never a
+        // URL, never anything from the clipboard. A release build logs nothing at all, so the
+        // service's no-logging property is unchanged where it matters.
+        if (BuildConfig.DEBUG) {
+            Log.i(
+                TAG,
+                "event=${observation.eventType} pkg=${observation.packageName} " +
+                    "verdict=${observation.rejection}" +
+                    (observation.labelSnippet?.let { " label=\"$it\"" } ?: "")
+            )
+        }
     }
 
     /** Forgets everything; used when the user clears the list. */
