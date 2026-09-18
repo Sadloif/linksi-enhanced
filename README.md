@@ -210,7 +210,10 @@ Contributions are welcome! Here's how you can help:
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
+
+The published APK also bundles **GPL-3.0** components (the site engine and FFmpeg). Those keep their own
+licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ---
 

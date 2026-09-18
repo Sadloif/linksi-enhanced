@@ -48,9 +48,9 @@ The specification asks for eleven specific determinations.
 
 | # | Question | Answer |
 |---|---|---|
-| 1 | Exact licence name | **MIT, declared in `README.md` only.** No licence file exists. |
+| 1 | Exact licence name | **MIT.** Declared in `README.md` and, since 2026-09-18, present as canonical text in [`LICENSE`](LICENSE). Before that commit no licence file existed, so this review's original finding was correct at the time and has since been remedied. |
 | 2 | Copyright owner | `AsukaAzure` (`anushkumar128@gmail.com`). |
-| 3 | Is modification permitted? | Under the declared MIT terms: **yes**. As a matter of strict fact, without licence text in the repository the default is "all rights reserved", so this rests on the README declaration and should be confirmed. |
+| 3 | Is modification permitted? | **Yes**, under MIT. (This line previously noted that, without licence text in the repository, the default would be "all rights reserved"; the `LICENSE` file now removes that ambiguity.) |
 | 4 | Is private modification permitted? | **Yes.** Private modification and private use are not restricted by copyright in any case; nothing is distributed. |
 | 5 | Is redistribution permitted? | Under the declared MIT terms: **yes, provided the copyright notice and the MIT licence text accompany the distribution** (MIT condition). Because the licence text is absent from the repo, **this notice is currently not satisfiable from the repository alone.** |
 | 6 | Is commercial distribution permitted? | Under the declared MIT terms: **yes**, MIT is permissive and non-copyleft. |
