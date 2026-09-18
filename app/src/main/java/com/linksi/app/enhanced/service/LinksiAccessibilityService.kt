@@ -101,6 +101,18 @@ class LinksiAccessibilityService : AccessibilityService() {
     @Volatile
     private var clipboardBeforeCopy: String? = null
 
+    /**
+     * The last link offered from the window tree, so the same page does not re-offer on every
+     * content-change event. Without this a WebView's constant event stream would raise a bubble
+     * continuously.
+     */
+    @Volatile
+    private var lastOfferedLink: String? = null
+
+    /** When the window tree was last scanned for a link. See [TREE_SCAN_INTERVAL_MS]. */
+    @Volatile
+    private var lastTreeScanAtMs: Long = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // The configuration lives in res/xml/accessibility_service_config.xml. An OEM or a user can
@@ -154,6 +166,11 @@ class LinksiAccessibilityService : AccessibilityService() {
         // which is why an earlier search of `event.source` alone found nothing.
         if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             dumpAllWindows("windows-changed pkg=$packageName")
+            // And scan here specifically, because this is the moment the link becomes readable: Brave's
+            // link nodes carry their `targetUrl` extra only while its context menu is open. Scanning at
+            // page load finds nothing, which is exactly what happened before this line existed.
+            lastTreeScanAtMs = SystemClock.elapsedRealtime()
+            offerLinkFromWindow(event, type, packageName)
         }
 
         // Belt and braces for the case a menu is added without a windows-changed event: a long press in
@@ -161,6 +178,29 @@ class LinksiAccessibilityService : AccessibilityService() {
         // on screen, so this is the moment worth capturing.
         if (BuildConfig.DEBUG && type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
             dumpAllWindows("selection pkg=$packageName")
+        }
+
+        // A browser long-press does not reliably produce any event this service can use - measured: a
+        // copy in Brave delivered no selection event and, on a later run, nothing at all. But the link
+        // IS on screen, in the WebView's node extras. So the window is examined whenever the window
+        // contents change, and a newly-visible link is offered directly.
+        //
+        // This is the "show it when a link appears" model rather than "react to a copy": it is the only
+        // one the platform supports here, and it is honest about it - the bubble appears because a link
+        // was long-pressed, which is what the user was doing anyway.
+        //
+        // Throttled hard. A WebView emits window-content changes in a continuous burst, and each check is
+        // a bounded but real tree walk on the MAIN THREAD - unthrottled this would be hundreds of walks
+        // per second and would visibly freeze the phone. [TREE_SCAN_INTERVAL_MS] is the minimum gap
+        // between scans, which is far below human perception for this purpose and keeps the cost sane.
+        if (type == CopyEventType.WINDOW_CONTENT_CHANGED ||
+            type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED
+        ) {
+            val nowMs = SystemClock.elapsedRealtime()
+            if (nowMs - lastTreeScanAtMs >= TREE_SCAN_INTERVAL_MS) {
+                lastTreeScanAtMs = nowMs
+                offerLinkFromWindow(event, type, packageName)
+            }
         }
 
         // 1. Cheapest possible rejection first: the whole feature is off.
@@ -470,6 +510,30 @@ class LinksiAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Offers the bubble for a link found in the window tree, at most once per distinct link.
+     *
+     * Extracted so the two entry points - a window appearing, and a window's contents changing - share
+     * exactly one implementation, and so the "already offered this link" rule cannot be forgotten at
+     * either. Without that rule a WebView's continuous event stream would raise a bubble forever.
+     */
+    private fun offerLinkFromWindow(event: AccessibilityEvent, type: CopyEventType, packageName: String?) {
+        linkFromChromiumExtras(event)?.let { url ->
+            if (url != lastOfferedLink) {
+                lastOfferedLink = url
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.i(TAG_DEBUG, "offering a link found in the window tree")
+                }
+                CopyObservationLog.record(
+                    CopyObservation(
+                        System.currentTimeMillis(), type, packageName, CopyRejection.ACCEPTED
+                    )
+                )
+                smartLinkDetector.onLikelyUrlCopied()
+            }
+        }
+    }
+
+    /**
      * The link a long-press was aimed at, found through Chromium's `targetUrl` extras.
      *
      * This is the mechanism that actually works for a browser, and it was invisible to every earlier
@@ -492,13 +556,26 @@ class LinksiAccessibilityService : AccessibilityService() {
      * Anything less certain returns null rather than guessing, so a wrong link is never offered.
      */
     private fun linkFromChromiumExtras(event: AccessibilityEvent): String? = runCatching {
-        val root = rootInActiveWindow ?: return@runCatching null
         val touch = touchPointOf(event)
 
+        // Walk every interactive window's root, not just `rootInActiveWindow`.
+        //
+        // This is the second time the same mistake was made in this investigation, so it is worth
+        // stating: the dump that first found `targetUrl` used `getWindows()`, and the search that
+        // followed used `rootInActiveWindow` - and reported "no targetUrl extras found" while the dump
+        // in the very same run was printing them. A Chromium page lives inside the active window's root,
+        // but that root is not always where the interesting nodes are reached from, so the search now
+        // uses exactly the source proven to work.
+        val roots = windows.orEmpty().mapNotNull { window ->
+            runCatching { window.root }.getOrNull()
+        }.ifEmpty {
+            listOfNotNull(runCatching { rootInActiveWindow }.getOrNull())
+        }
+
         val withTargets = mutableListOf<AccessibilityNodeInfo>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
         var visited = 0
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        roots.forEach { queue.add(it) }
         while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
             val node = queue.removeFirst()
             visited++
@@ -507,7 +584,23 @@ class LinksiAccessibilityService : AccessibilityService() {
                 node.getChild(index)?.let { queue.add(it) }
             }
         }
-        if (withTargets.isEmpty()) return@runCatching null
+        if (withTargets.isEmpty()) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.i(
+                    TAG_DEBUG,
+                    "scan: windows=${roots.size} visited=$visited nodes, no targetUrl extras found"
+                )
+            }
+            return@runCatching null
+        }
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                TAG_DEBUG,
+                "scan: windows=${roots.size} visited=$visited nodes, " +
+                    "targetUrl nodes=${withTargets.size}, touch=${touch != null}"
+            )
+        }
 
         // Exactly one link on the page: no ambiguity to resolve.
         if (withTargets.size == 1) return@runCatching withTargets.first().targetUrl()
@@ -529,8 +622,65 @@ class LinksiAccessibilityService : AccessibilityService() {
             start >= 0 && end > start
         }?.let { return@runCatching it.targetUrl() }
 
+        // Nothing distinguishes which of several links was pressed. Debug builds record what the
+        // candidates looked like, because "15 links, cannot tell which" is only actionable if the shape
+        // of those nodes is known.
+        if (BuildConfig.DEBUG) {
+            withTargets.take(6).forEach { node ->
+                val bounds = android.graphics.Rect()
+                runCatching { node.getBoundsInScreen(bounds) }
+                android.util.Log.i(
+                    TAG_DEBUG,
+                    "scan candidate: ${node.className?.toString()?.substringAfterLast('.')} " +
+                        "viewId=${node.viewIdResourceName ?: "-"} clickable=${node.isClickable} " +
+                        "bounds=$bounds desc=${node.contentDescription ?: "-"}"
+                )
+            }
+        }
+
+        // Last resort, and the one the research suggested is most likely to be exact: Chromium's
+        // context-menu header carries the link it was opened on (`ContextMenuHeaderProperties.URL`).
+        // So a URL-shaped string sitting in a node's own text is a strong candidate - it is how a menu
+        // header, or an address bar, represents "the link this action refers to".
+        urlShapedNodeText(roots)?.let { return@runCatching it }
         null
     }.getOrNull()
+
+    /**
+     * The first node whose own text is an actionable URL, or null.
+     *
+     * A page's ordinary content rarely has a node whose *entire* text is a URL - that shape is a menu
+     * header, an address bar, or a share preview. It is therefore a much narrower signal than "contains a
+     * link", and the URL is validated by the same rule as every other source.
+     */
+    private fun urlShapedNodeText(roots: List<AccessibilityNodeInfo>): String? {
+        var visited = 0
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        roots.forEach { queue.add(it) }
+        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
+            val node = queue.removeFirst()
+            visited++
+            val text = node.text?.toString()?.trim()
+            if (!text.isNullOrBlank() && text.length <= MAX_URL_TEXT_LENGTH) {
+                UrlTextExtractor.firstActionableUrl(text)?.let { url ->
+                    if (text == url || UrlTextExtractor.isActionableUrl(text)) {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.i(
+                                TAG_DEBUG,
+                                "scan: found a URL-shaped node text in " +
+                                    "${node.className?.toString()?.substringAfterLast('.')}"
+                            )
+                        }
+                        return url
+                    }
+                }
+            }
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let { queue.add(it) }
+            }
+        }
+        return null
+    }
 
     /** The href Chromium attached to [this] node, or null when it has none or it is unusable. */
     private fun AccessibilityNodeInfo.targetUrl(): String? {
@@ -758,8 +908,15 @@ class LinksiAccessibilityService : AccessibilityService() {
         /** Debug-only log tag for the clipboard fallback; a release build never writes it. */
         private const val TAG_DEBUG = "LinksiDetect"
 
-        /** Most nodes to visit when looking for a selection. A page tree can be very large. */
-        private const val MAX_TREE_NODES = 400
+        /**
+         * Most nodes to visit when looking for a selection or a link.
+         *
+         * Raised from 400 after a device run showed `visited=400 nodes, no targetUrl extras found`: the
+         * WebView sits deep inside Chromium's view hierarchy, so the budget was exhausted before
+         * reaching the page content and the search silently found nothing. 3000 is enough for a real
+         * page while still bounding the work, which matters because this runs on the main thread.
+         */
+        private const val MAX_TREE_NODES = 3000
 
         /** A node's text longer than this is page content, not a selectable link. */
         private const val MAX_SELECTED_TEXT = 4096
@@ -773,5 +930,16 @@ class LinksiAccessibilityService : AccessibilityService() {
          * This is what makes browser links findable at all - see [linkFromChromiumExtras].
          */
         private const val EXTRA_TARGET_URL = "AccessibilityNodeInfo.targetUrl"
+        /**
+         * Minimum gap between window-tree scans for a link.
+         *
+         * This is a main-thread tree walk triggered by an event stream a WebView produces continuously,
+         * so it is bounded in time as well as in nodes. 400 ms is well under what a user perceives as
+         * "as soon as I long-press", and it caps the cost at a couple of walks per second.
+         */
+        private const val TREE_SCAN_INTERVAL_MS = 400L
+
+        /** A node whose text is longer than this is content, not a URL-bearing label. */
+        private const val MAX_URL_TEXT_LENGTH = 2048
     }
 }
