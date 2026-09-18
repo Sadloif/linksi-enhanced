@@ -3323,3 +3323,88 @@ pattern worth carrying forward:
    simulation produces. The two-event nature of "select then Copy" was the entire bug.
 3. **A silent success is a defect.** The save worked for months of testing and looked broken to the only
    person using it.
+
+---
+
+## 49. Addendum 38 — the events do not contain the URL, so no rule can find it
+
+### 49.1 The measurement that ended the guessing
+
+After three rounds of rule-tightening failed to make copying work in the owner's apps, the debug-only
+verdict log was used to observe what the platform actually delivers. The owner copied three links in
+Brave (Facebook) and one in YouTube. Every event, in order:
+
+```
+WINDOW_CONTENT_CHANGED      pkg=com.brave.browser  verdict=NO_TEXT
+… (a burst of the same) …
+VIEW_TEXT_SELECTION_CHANGED pkg=com.brave.browser  verdict=SELECTION_WITHOUT_A_LINK
+VIEW_TEXT_SELECTION_CHANGED pkg=com.brave.browser  verdict=NO_TEXT
+VIEW_CLICKED                pkg=com.brave.browser  verdict=NO_TEXT
+WINDOW_CONTENT_CHANGED      pkg=com.brave.browser  verdict=NO_COPY_SIGNAL label="Web View"
+```
+
+**Brave does deliver the selection change and the click — but neither carries any text.** So there is no
+URL anywhere in the event stream, and *no* rule built on those events can ever work. Every earlier
+attempt, mine included, was tightening rules that could not have succeeded, because the input they needed
+was never present.
+
+### 49.2 Why the earlier test passed and this one does not
+
+| Affordance | Event contents | Detection |
+|---|---|---|
+| `ACTION_PROCESS_TEXT` (the Google gateway used in §47) | the URL **is** in the event | worked |
+| Brave / WebView "Copy link" (what the owner actually uses) | no text in the selection, none in the click | impossible |
+
+That is the whole discrepancy. The earlier passing test was not wrong about the mechanism; it was the
+wrong *case*, and it made the gap look closed for two rounds. A test that passes must be checked for
+whether it exercises the user's actual path — this one did not, and no amount of rule-tightening over it
+would have revealed that.
+
+### 49.3 The fix: the clipboard, compared against its own prior value
+
+The clipboard is the only remaining source of truth, and it is the same source the *working* paste path
+already uses. The service now:
+
+1. records the clipboard's URL when a selection with no link begins;
+2. on a click in the same app within three seconds, reads the clipboard again;
+3. treats it as a copy only if the clipboard now holds an actionable URL **that differs** from the value
+   recorded before the selection.
+
+The third condition is the one that matters for correctness: without it, a link copied earlier — still
+sitting on the clipboard — would be reported as the copy the user just made.
+
+Retention is unchanged in kind: only an actionable HTTP(S) URL is ever considered, nothing is cached or
+stored, and a release build logs nothing.
+
+### 49.4 The open risk, stated rather than assumed
+
+**It is not yet established that the accessibility service is permitted to read the clipboard while it
+is not the foreground app.** Android 10 and later restrict background clipboard reads, and an
+accessibility service is not guaranteed the exemption.
+
+This is deliberately not assumed in either direction. A debug-only line now reports the fact:
+
+```
+LinksiDetect: clipboard fallback: readable=<true|false> foundUrl=<true|false> changed=<true|false>
+```
+
+- `readable=true` → the approach works, and the bubble should appear.
+- `readable=false` → the platform refuses, and this fallback cannot work on this device. The honest next
+  step would then be a different mechanism entirely, not another rule.
+
+### 49.5 Totals
+
+| Check | Result |
+|---|---|
+| Root cause established with device evidence | **yes** — the URL is absent from every event Brave emits |
+| New mechanism | clipboard-change comparison, gated on a selection-then-click in one app |
+| Assumption count | **one**, explicitly instrumented rather than assumed |
+| `:app:testDebugUnitTest` | **782 tests, 0 failures** |
+| Commits | `a158194`, `71073ea`, `a86f818` |
+
+### 49.6 The transferable lesson
+
+Four separate attempts failed before the event stream was simply *read*. Each attempt reasoned about what
+the platform ought to deliver; none looked at what it did. **When a heuristic repeatedly fails on real
+input, stop refining the heuristic and capture the input.** The debug-only verdict log cost about twenty
+lines and answered in one user action what three rounds of inference had not.
