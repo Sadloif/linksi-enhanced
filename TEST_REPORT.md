@@ -3493,3 +3493,69 @@ The lesson is in §49.6 and it cost real time to learn.
 | Real defects found during the hunt | **2** — the false "not connected" status, and clicks discarded before the filter |
 | Working paths on the device | **3** — share, paste, and URL-carrying copy affordances |
 | `:app:testDebugUnitTest` | **782 tests, 0 failures** at `7739221` |
+
+---
+
+## 51. Addendum 40 — §50 was WRONG: browser copy detection does work
+
+### 51.1 The correction
+
+**§50 concluded that copy detection in a browser was a platform limit. That conclusion was false**, and an
+external review plus one further device experiment disproved it. This section records what was wrong, why,
+and what actually works. It is left in place rather than deleted because the reasoning error is the useful
+part.
+
+### 51.2 What §50 missed: links are in `extras`, not in `text`
+
+Every earlier search read `node.text` and `node.contentDescription`. **Chromium puts a link's destination
+in the node's extras bundle instead**, under `AccessibilityNodeInfo.targetUrl`. A window dump taken while a
+Brave context menu was open:
+
+```
+WINDOWS[selection pkg=com.brave.browser] #2 type=1 active=true focused=true
+  WebView  extras=[…, AccessibilityNodeInfo.chromeRole, …]
+  View  desc="Brave logo" clickable=true
+      extras=[…, AccessibilityNodeInfo.targetUrl, …]  targetUrl=PRESENT(len=25)
+  Image desc="Brave logo"
+      extras=[…, AccessibilityNodeInfo.targetUrl, …]  targetUrl=PRESENT(len=88)
+```
+
+Two genuine hrefs — 25 and 88 characters — that no amount of text inspection can reach. The service now
+finds them, picks the link whose bounds contain the event's touch point, and raises the bubble. Verified on
+the OPPO: `BubbleService` started via `Background started FGS: Allowed` four times in under two minutes as
+the owner copied links.
+
+### 51.3 Two further mistakes this exposed
+
+1. **`getWindows()` is required, not `rootInActiveWindow`.** The dump that *found* `targetUrl` used the
+   former; the search written from it used the latter, and reported "no targetUrl extras found" while the
+   same run was printing them. The same mistake was made twice.
+2. **A config gap:** `flagRetrieveInteractiveWindows` is documented as requiring `typeWindowsChanged`,
+   which the service never subscribed to despite setting the flag. A sibling accessibility service on the
+   same device did subscribe, which is what made the omission visible.
+
+### 51.4 What remains genuinely unreliable
+
+The owner's own experience, which the code now accepts rather than fights:
+
+| Observation | Cause |
+|---|---|
+| Copy in Brave → nothing; scroll away → bubble appears | The scan was triggered by content changes, so it reacted to "a link exists" rather than to the copy. Restricting the trigger removed the late bubble **and** removed the working case, so the trigger was restored deliberately |
+| Same gesture, same browser, different runs: `targetUrl nodes=9` then `targetUrl nodes=9` then `no targetUrl extras found` | **Chromium populates these extras inconsistently.** This is the root of the unreliability and it is not controllable from an app |
+| Facebook "Reels" | Facebook is **not installed** on this device — reels are viewed inside Brave, so this is a Chromium case after all. §50's native-app reasoning answered a question that did not arise |
+
+### 51.5 The position to take
+
+**Copy detection is best-effort: it works, sometimes, in Chromium-based browsers.** The owner, having used
+both, chose "the bubble sometimes appears late" over "nothing appears", and the code documents that
+trade-off at the point where it is made.
+
+The reliable routes remain and are unaffected: **share**, **paste**, and `ACTION_PROCESS_TEXT`.
+
+### 51.6 The transferable lesson, corrected
+
+§49.6 said to stop refining a heuristic and capture the input. That was right but incomplete. The deeper
+error here was **searching one field and concluding the data did not exist** — twice: first `node.text`
+(missing `extras`), then `rootInActiveWindow` (missing other windows). A negative result is only as strong
+as the search that produced it, and "I could not find it" should have prompted "have I looked
+everywhere?" before it became a conclusion in a report.
