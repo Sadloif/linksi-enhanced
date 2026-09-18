@@ -289,7 +289,7 @@ class LinksiAccessibilityService : AccessibilityService() {
      *
      * Called before the burst filter, because in a WebView the interval is almost always already spent
      * by the time the user's Copy tap arrives - which is exactly how three copies on a real device
-     * produced one click that reached no detection code at all (`TEST_REPORT.md` §49).
+     * produced one click that reached no detection code at all (`TEST_REPORT.md` Â§49).
      *
      * Two things are attempted, in order of how much they know:
      *
@@ -301,13 +301,9 @@ class LinksiAccessibilityService : AccessibilityService() {
      *     the selection began, so a link copied earlier cannot be reported as a fresh copy.
      */
     private fun handleCopyClick(packageName: String?, event: AccessibilityEvent) {
-        // 0. The clicked node's own surroundings, tried first because it is the only channel a real
-        //    device has left. Measured on the OPPO, a copy in Brave delivers exactly one event:
-        //      arrived: VIEW_CLICKED pkg=com.brave.browser
-        //    No selection change, no text, and the clipboard is refused to a background reader. What
-        //    the click *does* have is a node, and the context menu the user tapped lives in that node's
-        //    tree - including, often, the link the menu item refers to.
-        clickContextUrl(event)?.let { url ->
+        // 0. Chromium's own link metadata, tried first because it is the only mechanism measured to
+        //    work for a browser: links there carry no text at all, only a `targetUrl` extra.
+        linkFromChromiumExtras(event)?.let {
             lastForwardedAtMs = SystemClock.elapsedRealtime()
             CopyObservationLog.record(
                 CopyObservation(
@@ -315,16 +311,14 @@ class LinksiAccessibilityService : AccessibilityService() {
                     CopyRejection.ACCEPTED
                 )
             )
-            // A real link was found in the tree, so this is a copy-shaped click; the URL itself is not
-            // passed on, exactly as for the other paths.
             if (BuildConfig.DEBUG) {
-                android.util.Log.i(TAG_DEBUG, "copy click: resolved from the node tree")
+                android.util.Log.i(TAG_DEBUG, "copy click: resolved through a Chromium targetUrl extra")
             }
             smartLinkDetector.onLikelyUrlCopied()
             return
         }
 
-        // 1. A link the platform already told us about.
+        // 1. The clicked node's own surroundings.
         val remembered = recentSelection?.takeIf { it.isFresh() }
         if (remembered != null) {
             recentSelection = null
@@ -365,111 +359,12 @@ class LinksiAccessibilityService : AccessibilityService() {
         }
     }
 
-    /**
-     * A link found in the node tree around a click, or null.
-     *
-     * This is the last channel, and on a real device it is the only one a copy in Brave leaves open.
-     * The click carries no text and no selection was reported, but the context menu the user tapped is
-     * part of the tree, and its items frequently carry the link - either as their own text
-     * ("example.com/path") or in their content description.
-     *
-     * The search is deliberately shaped around that menu rather than sweeping the page:
-     *
-     *  1. the clicked node, and its ancestors up to [MAX_ANCESTOR_HOPS] - because the action that was
-     *     tapped is usually a leaf inside a menu container;
-     *  2. then each of those nodes' subtrees, breadth-first, bounded by [MAX_TREE_NODES].
-     *
-     * A plain page link would be found by this too, which is why an ancestor must *also* look like a
-     * copy affordance before the link is accepted: a copy label ("Copy", "Copy link address") on any
-     * node in the same subtree. That keeps an ordinary tap on a link from raising a bubble, which a
-     * test pins.
-     *
-     * Everything is wrapped and bounded: a null or partial tree simply yields null, leaving detection
-     * exactly as it was before this method existed.
-     */
-    private fun clickContextUrl(event: AccessibilityEvent): String? = runCatching {
-        val clicked = event.source ?: run {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.i(TAG_DEBUG, "tree: event.source was NULL - nothing to walk")
-            }
-            return@runCatching null
-        }
-
-        // The chain: the clicked node and its ancestors, which is where a menu container lives.
-        val chain = mutableListOf<AccessibilityNodeInfo>()
-        var current: AccessibilityNodeInfo? = clicked
-        var hops = 0
-        while (current != null && hops < MAX_ANCESTOR_HOPS) {
-            chain.add(current)
-            current = current.parent
-            hops++
-        }
-
-        if (BuildConfig.DEBUG) {
-            // What the tree actually offers at this click, so the three possibilities can be told
-            // apart rather than assumed: the source may be null, the menu may be in another window, or
-            // the menu may expose neither a copy label nor the link. Content-free summary only.
-            val summary = chain.joinToString(" | ") { node ->
-                val children = node.childCount
-                val label = LabelSnippet.of(true, node.contentDescription?.toString(), node.text?.toString())
-                "${node.className?.toString()?.substringAfterLast('.')}(kids=$children,label=$label)"
-            }
-            android.util.Log.i(TAG_DEBUG, "tree depth=${chain.size} nodes: $summary")
-        }
-
-        for (anchors in chain) {
-            if (!subtreeLooksLikeACopyAction(anchors)) continue
-            subtreeUrl(anchors)?.let { return@runCatching it }
-        }
-        null
-    }.getOrNull()
-
-    /** True when any node in [root]'s subtree carries a copy-ish label. Bounded by [MAX_TREE_NODES]. */
-    private fun subtreeLooksLikeACopyAction(root: AccessibilityNodeInfo): Boolean {
-        var visited = 0
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
-            val node = queue.removeFirst()
-            visited++
-            if (looksLikeACopyLabel(node.text?.toString())) return true
-            if (looksLikeACopyLabel(node.contentDescription?.toString())) return true
-            for (index in 0 until node.childCount) {
-                node.getChild(index)?.let { queue.add(it) }
-            }
-        }
-        return false
-    }
-
-    /** The first actionable URL in [root]'s subtree, or null. Bounded by [MAX_TREE_NODES]. */
-    private fun subtreeUrl(root: AccessibilityNodeInfo): String? {
-        var visited = 0
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
-            val node = queue.removeFirst()
-            visited++
-            UrlTextExtractor.firstActionableUrl(node.text?.toString())?.let { return it }
-            UrlTextExtractor.firstActionableUrl(node.contentDescription?.toString())?.let { return it }
-            for (index in 0 until node.childCount) {
-                node.getChild(index)?.let { queue.add(it) }
-            }
-        }
-        return null
-    }
-
-    /** True when [value] names a copy or link action rather than ordinary content. */
-    private fun looksLikeACopyLabel(value: String?): Boolean {
-        val text = value?.trim()?.lowercase() ?: return false
-        if (text.isEmpty() || text.length > MAX_COPY_LABEL_LENGTH) return false
-        return COPY_ACTION_WORDS.any { it in text }
-    }
 
     /**
      * The currently selected text, read from the window's node tree.
      *
-     * Kept alongside [clickContextUrl] because a selection is still the most precise signal when a
-     * platform does report one; several apps do.
+     * A selection is still the most precise signal when a platform reports one, and several apps do, so
+     * this is kept alongside the Chromium-extras path rather than replaced by it.
      */
     private fun selectedTextFromWindow(): String? = runCatching {
         val root = rootInActiveWindow ?: return@runCatching null
@@ -538,13 +433,23 @@ class LinksiAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Chromium's key for a link node's destination.
+     *
+     * Chromium exposes the href of a link through `AccessibilityNodeInfo.getExtras()` under this key,
+     * even when the node's `text` is empty. This is the piece the first investigation missed: a
+     * browser's links are not readable through `node.text` at all, so no amount of text inspection
+     * would ever have found them. Confirmed on the device - a Brave page reported
+     * `targetUrl=PRESENT(len=25)` and `len=88` on two nodes.
+     */
+
     /** Depth-first node dump, bounded by `budget[0]` nodes in total. */
     private fun dumpNode(node: AccessibilityNodeInfo, reason: String, depth: Int, budget: IntArray) {
         if (budget[0]-- <= 0) return
         val extras = runCatching { node.extras }.getOrNull()
         val extraKeys = extras?.keySet()?.joinToString(",").orEmpty()
         // The Chromium link target. Presence is what matters; the value is redacted to a marker.
-        val target = runCatching { extras?.getString("AccessibilityNodeInfo.targetUrl") }.getOrNull()
+        val target = runCatching { extras?.getString(EXTRA_TARGET_URL) }.getOrNull()
         val targetNote = when {
             target == null -> ""
             else -> " targetUrl=PRESENT(len=${target.length})"
@@ -562,6 +467,105 @@ class LinksiAccessibilityService : AccessibilityService() {
         for (child in 0 until node.childCount) {
             node.getChild(child)?.let { dumpNode(it, reason, depth + 1, budget) }
         }
+    }
+
+    /**
+     * The link a long-press was aimed at, found through Chromium's `targetUrl` extras.
+     *
+     * This is the mechanism that actually works for a browser, and it was invisible to every earlier
+     * attempt. A browser's links carry no `text` and no `contentDescription`; Chromium instead puts the
+     * href in the node's **extras** bundle. Measured on a Brave page:
+     *
+     * ```
+     * View viewId=â€¦ desc="Brave logo" clickable=true
+     *     extras=[â€¦, AccessibilityNodeInfo.targetUrl, â€¦] targetUrl=PRESENT(len=25)
+     * ```
+     *
+     * Selecting *which* link was long-pressed is the real problem, since a page has many. Three
+     * candidates are collected and ranked, best first:
+     *
+     *  1. a node whose bounds **contain the touch point of the event**, which is the link the finger was
+     *     actually on - exact, and the reason the event's bounds are used at all;
+     *  2. a node reporting a live text selection, which is what a long-press on a link selects;
+     *  3. the only `targetUrl` node in the tree, when there is exactly one - unambiguous by definition.
+     *
+     * Anything less certain returns null rather than guessing, so a wrong link is never offered.
+     */
+    private fun linkFromChromiumExtras(event: AccessibilityEvent): String? = runCatching {
+        val root = rootInActiveWindow ?: return@runCatching null
+        val touch = touchPointOf(event)
+
+        val withTargets = mutableListOf<AccessibilityNodeInfo>()
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        while (queue.isNotEmpty() && visited < MAX_TREE_NODES) {
+            val node = queue.removeFirst()
+            visited++
+            if (node.targetUrl() != null) withTargets.add(node)
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let { queue.add(it) }
+            }
+        }
+        if (withTargets.isEmpty()) return@runCatching null
+
+        // Exactly one link on the page: no ambiguity to resolve.
+        if (withTargets.size == 1) return@runCatching withTargets.first().targetUrl()
+
+        // The link under the finger, when the platform gave us the touch point.
+        if (touch != null) {
+            withTargets
+                .filter { it.containsPoint(touch.first, touch.second) }
+                // The innermost match is the most specific; prefer a node that is itself clickable.
+                .minByOrNull { it.boundsArea() }
+                ?.targetUrl()
+                ?.let { return@runCatching it }
+        }
+
+        // A node the platform says is currently selected.
+        withTargets.firstOrNull { node ->
+            val start = runCatching { node.textSelectionStart }.getOrDefault(-1)
+            val end = runCatching { node.textSelectionEnd }.getOrDefault(-1)
+            start >= 0 && end > start
+        }?.let { return@runCatching it.targetUrl() }
+
+        null
+    }.getOrNull()
+
+    /** The href Chromium attached to [this] node, or null when it has none or it is unusable. */
+    private fun AccessibilityNodeInfo.targetUrl(): String? {
+        val raw = runCatching { extras?.getString(EXTRA_TARGET_URL) }.getOrNull() ?: return null
+        if (raw.isBlank()) return null
+        // Validated like any other candidate: only an actionable HTTP(S) URL may leave this class.
+        return UrlTextExtractor.firstActionableUrl(raw)
+    }
+
+    /**
+     * The centre of the event source's on-screen bounds, or null when the platform omitted them.
+     *
+     * A long-press on a link reports the link's own rectangle, so its centre is the point the finger
+     * was on - good enough to decide which of several links was pressed.
+     */
+    private fun touchPointOf(event: AccessibilityEvent): Pair<Int, Int>? {
+        val source = runCatching { event.source }.getOrNull() ?: return null
+        val bounds = android.graphics.Rect()
+        runCatching { source.getBoundsInScreen(bounds) }
+        if (bounds.isEmpty) return null
+        return bounds.centerX() to bounds.centerY()
+    }
+
+    /** True when ([x], [y]) lies inside this node's on-screen bounds. */
+    private fun AccessibilityNodeInfo.containsPoint(x: Int, y: Int): Boolean {
+        val bounds = android.graphics.Rect()
+        runCatching { getBoundsInScreen(bounds) }
+        return !bounds.isEmpty && bounds.contains(x, y)
+    }
+
+    /** Area of this node's bounds, used to prefer the most specific match. */
+    private fun AccessibilityNodeInfo.boundsArea(): Int {
+        val bounds = android.graphics.Rect()
+        runCatching { getBoundsInScreen(bounds) }
+        return if (bounds.isEmpty) Int.MAX_VALUE else bounds.width() * bounds.height()
     }
 
     override fun onInterrupt() {
@@ -688,7 +692,7 @@ class LinksiAccessibilityService : AccessibilityService() {
         else -> CopyEventType.OTHER
     }
 
-    // ── Settings ──────────────────────────────────────────────────────────────
+    // â”€â”€ Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun isEnabled(): Boolean {
         if (SystemClock.elapsedRealtime() - settingsLoadedAtMs > SETTINGS_TTL_MS) {
@@ -760,16 +764,14 @@ class LinksiAccessibilityService : AccessibilityService() {
         /** A node's text longer than this is page content, not a selectable link. */
         private const val MAX_SELECTED_TEXT = 4096
 
-        /** How far up from a clicked node to look for the menu that contains it. */
-        private const val MAX_ANCESTOR_HOPS = 6
-
-        /** A label longer than this is prose, not a control name. */
-        private const val MAX_COPY_LABEL_LENGTH = 120
-
-        /** Words that mark a node as a copy affordance rather than content. */
-        private val COPY_ACTION_WORDS = listOf("copy", "link", "clipboard")
-
         /** Most nodes a single window dump may print, so a large page cannot flood the log. */
         private const val MAX_DUMP_NODES = 500
+
+        /**
+         * Chromium's key for a link node's destination, in `AccessibilityNodeInfo.getExtras()`.
+         *
+         * This is what makes browser links findable at all - see [linkFromChromiumExtras].
+         */
+        private const val EXTRA_TARGET_URL = "AccessibilityNodeInfo.targetUrl"
     }
 }
