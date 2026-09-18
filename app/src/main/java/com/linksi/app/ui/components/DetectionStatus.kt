@@ -288,8 +288,13 @@ internal fun describeObservation(
         CopyRejection.PASSWORD_OR_SENSITIVE -> "refused: password or sensitive field"
         CopyRejection.IGNORED_PACKAGE -> "refused: app is on your ignore list"
         CopyRejection.NO_TEXT -> "ignored: the event carried no text"
+        CopyRejection.SELECTION_REMEMBERED -> "link selected - waiting for the Copy tap"
+        CopyRejection.SELECTION_WITHOUT_A_LINK -> "text selected but the selection held no link"
     }
-    return "$ago  $app  ${observation.eventType.name.lowercase()}  ->  $verdict"
+    // In a debug build the label the control carried is shown, because "no copy signal" without
+    // knowing the label is not actionable. It is always null in a release build.
+    val label = observation.labelSnippet?.takeIf { it.isNotBlank() }?.let { "  [label: $it]" } ?: ""
+    return "$ago  $app  ${observation.eventType.name.lowercase()}  ->  $verdict$label"
 }
 
 /**
@@ -335,9 +340,17 @@ private fun readDetectionDiagnostics(
 ): DetectionDiagnostics {
     val accessibilityEnabled = runCatching {
         val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-        val expected = "${context.packageName}/${LinksiAccessibilityService::class.java.name}"
+        // `getEnabledAccessibilityServiceList` returns the services the system has actually **bound**,
+        // and each id is spelled `pkg/.ClassName` or `pkg/full.ClassName` depending on the platform.
+        // Matching on the simple class name avoids this reporting "not connected" for a service that
+        // is demonstrably delivering events - which it did, on a real device, and made the whole
+        // status block untrustworthy at exactly the moment it was needed.
+        val simpleName = LinksiAccessibilityService::class.java.simpleName
         manager?.getEnabledAccessibilityServiceList(AccessibilityServiceInfoAll)
-            ?.any { it.id.equals(expected, ignoreCase = true) } == true
+            ?.any { info ->
+                val id = info.id.orEmpty()
+                id.startsWith(context.packageName) && id.contains(simpleName)
+            } == true
     }.getOrDefault(false)
 
     val overlayGranted = runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)

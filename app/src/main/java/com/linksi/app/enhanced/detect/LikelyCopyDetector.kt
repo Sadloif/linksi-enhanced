@@ -284,17 +284,63 @@ enum class CopyRejection {
     NO_URL,
     /** The node had no text or label at all, so there was nothing to judge. */
     NO_TEXT,
+    /** A text selection contained a link and was remembered for a following Copy tap. */
+    SELECTION_REMEMBERED,
+    /** A text selection happened but held no usable link, so there is nothing a Copy could refer to. */
+    SELECTION_WITHOUT_A_LINK,
+}
+
+/**
+ * A short, safe excerpt of an event's own label, for a debug build only.
+ *
+ * Deliberately narrow, because it is the one thing here that carries any text:
+ *
+ *  - **debug builds only**: the caller passes `BuildConfig.DEBUG`, so a release build always reports
+ *    null and the invariant "a release build retains no content" continues to hold;
+ *  - it is a node's **label or content description**, never `event.text` (which on a WebView is the
+ *    whole page) and never anything from the clipboard;
+ *  - bounded to [MAX_LABEL_SNIPPET], and a URL in it is replaced before display, so a diagnostic
+ *    cannot become a record of what was copied.
+ */
+object LabelSnippet {
+
+    const val MAX_LABEL_SNIPPET = 48
+
+    /**
+     * Returns a bounded, URL-free excerpt of [description] or [text], or null when there is nothing to
+     * show or [enabled] is false.
+     */
+    fun of(enabled: Boolean, description: String?, text: String?): String? {
+        if (!enabled) return null
+        val raw = description?.trim()?.takeIf { it.isNotEmpty() }
+            ?: text?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return null
+        // Drop anything URL-shaped rather than showing it. The label is what is being diagnosed; a URL
+        // in it adds nothing and is the one thing worth not keeping.
+        val withoutUrls = URL_LIKE.replace(raw, "<url>")
+        return withoutUrls.take(MAX_LABEL_SNIPPET)
+    }
+
+    private val URL_LIKE = Regex("""\b(?:https?://|www\.)\S+""", RegexOption.IGNORE_CASE)
 }
 
 /**
  * One observed event, reduced to what is safe and useful to show: when, what kind, from which app, and
- * the verdict. Deliberately no text, no URL and no content description.
+ * the verdict.
+ *
+ * [labelSnippet] is populated **only in a debug build** and only for an event that reached the
+ * heuristic but produced no copy signal - the case where the answer is otherwise unknowable. It exists
+ * because the field failure was "I copy a link and nothing happens": the verdict alone says a signal
+ * was missing, but not which label the control actually carried, so there was no way to decide whether
+ * the rule or the platform was at fault. It is a bounded number of characters of a node's own label,
+ * never a URL and never clipboard content, and it is always empty in a release build.
  */
 data class CopyObservation(
     val atMs: Long,
     val eventType: CopyEventType,
     val packageName: String?,
-    val rejection: CopyRejection
+    val rejection: CopyRejection,
+    val labelSnippet: String? = null
 )
 
 /**

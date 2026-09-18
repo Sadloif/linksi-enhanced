@@ -8,12 +8,14 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.linksi.app.enhanced.EnhancedPreferenceKeys
+import com.linksi.app.BuildConfig
 import com.linksi.app.enhanced.detect.CopyDetection
 import com.linksi.app.enhanced.detect.CopyEventInput
 import com.linksi.app.enhanced.detect.CopyEventType
 import com.linksi.app.enhanced.detect.CopyObservation
 import com.linksi.app.enhanced.detect.CopyObservationLog
 import com.linksi.app.enhanced.detect.CopyRejection
+import com.linksi.app.enhanced.detect.LabelSnippet
 import com.linksi.app.enhanced.detect.LikelyCopyDetector
 import com.linksi.app.enhanced.detect.RecentSelection
 import com.linksi.app.enhanced.detect.SmartLinkDetector
@@ -117,6 +119,35 @@ class LinksiAccessibilityService : AccessibilityService() {
             return
         }
 
+        // A selection change is handled FIRST, before the rate limit.
+        //
+        // It used to be handled after, which made the whole copy path undiagnosable: a burst of
+        // window-content events from a browser would consume the interval, and the one selection that
+        // mattered was then dropped so early that it never appeared in the observation log at all.
+        // Recording it here means "did the platform even tell us about the selection?" always has an
+        // answer. Remembering it is cheap - one field, no I/O.
+        if (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
+            // Read the minimum from the event, exactly as the detector path does.
+            val selectionInput = readEvent(event)
+            val selected = UrlTextExtractor.firstActionableUrl(selectionInput?.text)
+                ?: UrlTextExtractor.firstActionableUrl(selectionInput?.contentDescription)
+            if (selected != null) {
+                recentSelection = RecentSelection(selected, System.currentTimeMillis())
+                CopyObservationLog.record(
+                    CopyObservation(
+                        System.currentTimeMillis(), type, packageName, CopyRejection.SELECTION_REMEMBERED
+                    )
+                )
+            } else {
+                CopyObservationLog.record(
+                    CopyObservation(
+                        System.currentTimeMillis(), type, packageName,
+                        CopyRejection.SELECTION_WITHOUT_A_LINK
+                    )
+                )
+            }
+        }
+
         // 2. A burst of events for one user action must not queue up work.
         val now = SystemClock.elapsedRealtime()
         if (now - lastForwardedAtMs < MIN_DETECTION_INTERVAL_MS) return
@@ -133,6 +164,8 @@ class LinksiAccessibilityService : AccessibilityService() {
             return
         }
 
+        // 3. Pure heuristic, no I/O. The "with reason" form returns exactly the same CopyDetection the
+        //    plain form would, and additionally says which rule decided.
         val input = readEvent(event)
         if (input == null) {
             CopyObservationLog.record(
@@ -140,26 +173,24 @@ class LinksiAccessibilityService : AccessibilityService() {
             )
             return
         }
-
-        // A selection change that carries a link is remembered briefly. The platform then delivers the
-        // user's "Copy" tap as a *separate* click with no URL in it, and without this the most common
-        // copy there is - select a link, tap Copy - has nothing to resolve against. See RecentSelection
-        // for the bounds on what is retained (one URL, five seconds, memory only, dropped on use).
-        if (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
-            UrlTextExtractor.firstActionableUrl(input.text)?.let { selected ->
-                recentSelection = RecentSelection(selected, System.currentTimeMillis())
-            }
-        }
-
-        // 3. Pure heuristic, no I/O. The "with reason" form returns exactly the same CopyDetection the
-        //    plain form would, and additionally says which rule decided.
         val (detection, rejection) = LikelyCopyDetector.detectWithReason(
             input = input,
             ignoredPackages = cachedIgnoredPackages,
             recentSelection = recentSelection
         )
         CopyObservationLog.record(
-            CopyObservation(System.currentTimeMillis(), type, packageName, rejection)
+            CopyObservation(
+                atMs = System.currentTimeMillis(),
+                eventType = type,
+                packageName = packageName,
+                rejection = rejection,
+                // Debug builds only: the label the control actually carried. See LabelSnippet.
+                labelSnippet = LabelSnippet.of(
+                    enabled = BuildConfig.DEBUG,
+                    description = input.contentDescription,
+                    text = input.text
+                )
+            )
         )
         if (detection !is CopyDetection.Detected) return
 
