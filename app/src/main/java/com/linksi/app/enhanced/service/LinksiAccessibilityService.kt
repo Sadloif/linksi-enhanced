@@ -113,6 +113,10 @@ class LinksiAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastTreeScanAtMs: Long = 0
 
+    /** When a native app's tree was last dumped, so the log stays readable. Debug builds only. */
+    @Volatile
+    private var lastNativeDumpAtMs: Long = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // The configuration lives in res/xml/accessibility_service_config.xml. An OEM or a user can
@@ -173,6 +177,20 @@ class LinksiAccessibilityService : AccessibilityService() {
             offerLinkFromWindow(event, type, packageName)
         }
 
+        // Debug builds only: one dump when a native (non-Chromium) app presents something link-shaped.
+        //
+        // Facebook Reels, WhatsApp and YouTube are native apps with their own view hierarchies, so
+        // Chromium's `targetUrl` extra cannot exist there. This records what they *do* expose, so
+        // "unsupported" is a measured conclusion rather than an assumption. One dump per app per minute
+        // keeps it readable.
+        if (BuildConfig.DEBUG && packageName != null && packageName !in CHROMIUM_PACKAGES) {
+            val nowMs = SystemClock.elapsedRealtime()
+            if (nowMs - lastNativeDumpAtMs >= NATIVE_DUMP_INTERVAL_MS) {
+                lastNativeDumpAtMs = nowMs
+                dumpAllWindows("native pkg=$packageName")
+            }
+        }
+
         // Belt and braces for the case a menu is added without a windows-changed event: a long press in
         // a browser fires a selection change, and at that instant the menu is about to be (or already is)
         // on screen, so this is the moment worth capturing.
@@ -182,20 +200,21 @@ class LinksiAccessibilityService : AccessibilityService() {
 
         // A browser long-press does not reliably produce any event this service can use - measured: a
         // copy in Brave delivered no selection event and, on a later run, nothing at all. But the link
-        // IS on screen, in the WebView's node extras. So the window is examined whenever the window
-        // contents change, and a newly-visible link is offered directly.
+        // IS on screen, in the WebView's node extras, so the window is examined when something suggests
+        // a link action is under way.
         //
-        // This is the "show it when a link appears" model rather than "react to a copy": it is the only
-        // one the platform supports here, and it is honest about it - the bubble appears because a link
-        // was long-pressed, which is what the user was doing anyway.
+        // ONLY on those signals - deliberately NOT on TYPE_WINDOW_CONTENT_CHANGED, which is what this
+        // used to do and which was wrong. A scrolling feed emits content changes continuously, so
+        // triggering on them meant the bubble was driven by "a link exists somewhere" rather than by
+        // anything the user did, and it arrived whenever the next content change happened to occur.
+        // Reported from the field as: copy a link in Facebook Reels and nothing appears; scroll away
+        // and the bubble appears - a bubble at the wrong moment, which is worse than none.
         //
-        // Throttled hard. A WebView emits window-content changes in a continuous burst, and each check is
-        // a bounded but real tree walk on the MAIN THREAD - unthrottled this would be hundreds of walks
-        // per second and would visibly freeze the phone. [TREE_SCAN_INTERVAL_MS] is the minimum gap
-        // between scans, which is far below human perception for this purpose and keeps the cost sane.
-        if (type == CopyEventType.WINDOW_CONTENT_CHANGED ||
-            type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED
-        ) {
+        // The two triggers now are the ones that mean "the user is interacting with a link":
+        //  - a selection change, which a long-press produces (and which long-press on a page link also
+        //    produces in several apps);
+        //  - a new window, which is how a context menu announces itself.
+        if (type == CopyEventType.VIEW_TEXT_SELECTION_CHANGED) {
             val nowMs = SystemClock.elapsedRealtime()
             if (nowMs - lastTreeScanAtMs >= TREE_SCAN_INTERVAL_MS) {
                 lastTreeScanAtMs = nowMs
@@ -941,5 +960,23 @@ class LinksiAccessibilityService : AccessibilityService() {
 
         /** A node whose text is longer than this is content, not a URL-bearing label. */
         private const val MAX_URL_TEXT_LENGTH = 2048
+
+        /** Minimum gap between native-app tree dumps, so a chatty app cannot flood the log. */
+        private const val NATIVE_DUMP_INTERVAL_MS = 60_000L
+
+        /**
+         * Packages known to be Chromium-based, i.e. the ones that DO expose `targetUrl`.
+         *
+         * Used only to decide what to dump for diagnosis. A native app is not expected to expose link
+         * metadata at all, and this list is how "expected" is distinguished from "unexpected".
+         */
+        private val CHROMIUM_PACKAGES = setOf(
+            "com.brave.browser",
+            "com.android.chrome",
+            "com.chrome.beta",
+            "org.chromium.webview_shell",
+            "com.microsoft.emmx",
+            "com.sec.android.app.sbrowser"
+        )
     }
 }
