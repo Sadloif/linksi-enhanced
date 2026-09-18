@@ -144,6 +144,42 @@ code is added: the MIT yt-dlp wrapper is `arm64-v8a` + `x86_64` only and is ~60�
 The `release` build type always references that signing config (`app/build.gradle:38-41`), and
 `minifyEnabled true` with `proguard-rules.pro` is applied.
 
+### 3.0 Debug builds need `DEBUG_KEYSTORE_PATH` in a sandbox
+
+`assembleDebug` fails with `AccessDeniedException: %USERPROFILE%\.android\debug.keystore.lock`
+whenever the session file sandbox denies writes to the real user home — the keystore itself is
+readable, but AGP needs to create a sibling `.lock` file. `app/build.gradle` supports an escape
+hatch for exactly this; point debug signing at the keystore this workspace already owns:
+
+```powershell
+$env:DEBUG_KEYSTORE_PATH     = 'E:\Deepseek\Linksi\keys\debug.keystore'
+$env:DEBUG_KEYSTORE_PASSWORD = 'android'
+$env:DEBUG_KEY_ALIAS         = 'androiddebugkey'
+$env:DEBUG_KEY_PASSWORD      = 'android'
+```
+
+The alias is `androiddebugkey` (verified with `keytool -list`). Keeping debug signing on this fixed
+keystore is what lets a debug APK install **over** an existing one as an in-place upgrade; a debug
+build signed by a different key is rejected by Android with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,
+and the only way out is uninstalling, which destroys the user's database.
+
+### 3.0.1 `assembleDebug` can silently leave a stale APK — always check the build clock
+
+Gradle marks `assembleDebug` **UP-TO-DATE** when only the version metadata changed, so an APK from
+an earlier commit can survive on disk and be installed as if it were current. This actually happened:
+a 14:53 debug APK carrying `versionCode 23` was installed at 19:24, *after* the 18:51 merge, and the
+device dutifully reported `versionName=3.1.1-enhanced.3` — the pre-merge build, dressed up as the
+deliverable. Two habits prevent a repeat:
+
+1. Before installing, assert the APK's identity rather than trusting its path:
+   `aapt2 dump badging <apk> | Select-String '^package:'` must show the `versionCode`/`versionName`
+   you expect.
+2. Compare the APK's `LastWriteTime` against the commit you think it contains
+   (`git log -1 --format=%ci`). An APK older than its source is not that source.
+
+The cheap way to tell what is really inside an APK without installing it is to scan the dex for a
+symbol you know is new — see §7.5.
+
 ### 3.1 Generating a private keystore (first time only)
 
 Run once, store the file **outside the repository tree** and back it up:
@@ -398,9 +434,32 @@ substitute for `gradlew :app:test`, which compiles the whole module.
   explicit `settings.gradle` change.
 - `gradle.properties:1` caps the daemon at `-Xmx2048m`. A large native payload or a big lint run may
   need more; raise it deliberately.
-- `app/build.gradle:12` is still `compileSdk 34`, so the Android 16 target and the Media3 requirement
-  are both still **open build changes**, not current state.
+- `app/build.gradle` now sets `compileSdk 36` / `targetSdk 36` / `minSdk 26`, so the Android 16
+  target is **done** (the fork deliberately stays on 36 where upstream moved to 34).
 - Native-library packaging (`android:extractNativeLibs`, or `packaging { jniLibs { useLegacyPackaging
   = true } }`) becomes a real decision as soon as a dependency with native code is added — mandatory
   for the GPL `youtubedl-android` route, and a compliance question for any FFmpeg option. See
   [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) §3.
+
+### 7.5 Reading an APK's real contents without installing it
+
+To prove a class or string actually shipped — the fastest way to catch a stale artifact (§3.0.1) —
+open the APK as a zip and search the `classes*.dex` payloads as raw bytes. A DEX stores string
+constants in plain ASCII, so a substring search needs no disassembler:
+
+```powershell
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'app\build\outputs\apk\debug\app-arm64-v8a-debug.apk').Path)
+foreach ($e in $zip.Entries | Where-Object { $_.Name -like 'classes*.dex' }) {
+  $ms = New-Object System.IO.MemoryStream; $e.Open().CopyTo($ms)
+  $txt = [System.Text.Encoding]::ASCII.GetString($ms.ToArray())
+  if ($txt.Contains('EnhancedLinkActions')) { "PRESENT in $($e.Name)" }
+  $ms.Dispose()
+}
+$zip.Dispose()
+```
+
+Do **not** try to answer this with `dumpsys package`: it lists manifest components (activities,
+services, providers) and not general classes, so a `grep` for an ordinary class name returns nothing
+even when the class is present. That false negative is what made an earlier round misjudge which
+build was installed.

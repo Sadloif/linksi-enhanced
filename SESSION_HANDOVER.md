@@ -12,6 +12,9 @@ Everything a new session needs to continue this project without re-deriving anyt
 > The two newest changes are the **site-engine refresh** (§3, and `TEST_REPORT.md` §19) and the fact
 > that **real Facebook links now extract on both devices** — read §19 before touching anything in
 > `enhanced/media/ytdlp/`, because it records a trap that cost two failed attempts.
+>
+> **Later the same day:** upstream 3.2.0 was merged in and the merged build was installed on the OPPO.
+> Read **§15** before building anything, and `RECOVERY_AND_UPSTREAM.md` for the merge itself.
 
 ---
 
@@ -657,3 +660,92 @@ Three rules to carry over with it:
 > Iterate on the emulator and reinstall the POCO only when the APK changes. Unattended ADB installs
 > work after MIUI optimization was turned off. Do not push to GitHub until I say the work is final,
 > and rebuild the signed release first — the archived APKs predate all of this.
+
+---
+
+## 15. The upstream 3.2.0 merge and the OPPO install — current state
+
+Written after §14, at HEAD `58e6487`. This section supersedes §14's "do not push" instruction: the
+fork **is** pushed, released, and now merged with upstream.
+
+### 15.1 Where the repository stands
+
+| Fact | Value |
+|---|---|
+| Fork | `https://github.com/Sadloif/linksi-enhanced` (private), default branch `enhanced/integration` |
+| HEAD | `58e6487` — merge `2270690` (parents `b4be6c7` + upstream `8725910`), tree clean |
+| Upstream | `AsukaAzure/Linksi`; push URL is deliberately `DISABLED-do-not-push-to-upstream` |
+| Divergence | 5 upstream commits taken, 72 fork commits retained |
+| Conflicts | exactly two — `app/build.gradle` (version metadata) and `MetadataFetcher.kt` (duplicate url helpers) |
+| Released | `v3.1.1-enhanced.3` (keep, for rollback) and `v3.2.0-enhanced.1` |
+| Backups | `backup/pre-replace-20260918/*` for all 10 pre-existing branches, local and remote |
+
+The merge mechanics, the clone-test results and the next-update recipe are in
+`RECOVERY_AND_UPSTREAM.md`; do not duplicate that work, read it.
+
+### 15.2 The stale-APK trap that bit this round
+
+`assembleDebug` reports **UP-TO-DATE** when only version metadata changed, so a debug APK built
+*before* the merge survived on disk and was installed at 19:24 as if it were the merged deliverable.
+The phone then reported `versionName=3.1.1-enhanced.3` — the pre-merge build. It was caught only by
+running `aapt2 dump badging` on the exact file being installed and noticing `versionCode 23` where
+`build.gradle` said `24`.
+
+**Always assert the artifact's identity before installing it**, and compare the APK's `LastWriteTime`
+against `git log -1 --format=%ci`. Full procedure in `BUILD_AND_RELEASE.md` §3.0.1 and §7.5.
+
+Two more build facts from the same round, both recorded in `BUILD_AND_RELEASE.md` §3.0:
+
+- The sandbox denies `%USERPROFILE%\.android\debug.keystore.lock`, so `assembleDebug` needs
+  `DEBUG_KEYSTORE_PATH=E:\Deepseek\Linksi\keys\debug.keystore` (alias `androiddebugkey`).
+- `GRADLE_USER_HOME` must be workspace-local; `E:\Deepseek\Linksi\local\.gradle-home-main` has the
+  fullest cache and builds debug with `--offline`.
+
+### 15.3 What is installed on the OPPO right now
+
+`3C761M001MS00000` (CPH2825, Android 16 / ColorOS 16), package `com.linksi.app.debug`:
+
+- **versionCode 24 / versionName 3.2.0-enhanced.1**, installed 19:27:54 as an in-place upgrade.
+- The debug keystore is the same one that signed the previous install, which is why the upgrade kept
+  the user's data. Verified byte-for-byte against the pre-install backup: `linksi_db` 69,632 B,
+  `linksi_db-wal` 424,392 B, `-shm` 32,768 B.
+- The accessibility service is **bound and receiving all five event types** —
+  `TYPE_VIEW_CLICKED`, `TYPE_WINDOW_STATE_CHANGED`, `TYPE_WINDOW_CONTENT_CHANGED`,
+  `TYPE_VIEW_TEXT_SELECTION_CHANGED`, `TYPE_WINDOWS_CHANGED`. `dumpsys accessibility` lists it under
+  both *Bound services* and *Enabled services*, so the earlier ColorOS "enabled but not bound" fault
+  is not present in this build.
+- The app launches clean: no `FATAL`, `MainActivity` resumed.
+
+A local data safety net exists at `E:\Deepseek\Linksi\local\.probe\phone-data-backup\`
+(`debug-data.tar`, `debug-prefs.tar`), taken with
+`adb exec-out run-as com.linksi.app.debug tar -cf - databases`. This works on ColorOS and is the
+cheap way to snapshot the database before any reinstall.
+
+### 15.4 What is still unproven
+
+The four enhanced behaviours were requested by the owner and their code is in the installed APK
+(verified by scanning the dex for `EnhancedLinkActions`, `LinkGridCard`, `previewImageUrl`), but
+**no human has yet exercised them on the phone**. They need a hands-on pass:
+
+1. Copy a link in Brave → does the link-copy detection fire and the bubble appear?
+2. Add a link by hand → are *Download*, *URL cleaner* and *Enhanced settings* reachable from the flow?
+3. Do link cards and the list show real thumbnails from the stored preview image, not just a favicon?
+4. Share a link to Linksi → are the enhanced features reachable from that route?
+
+Copy detection remains **best-effort even when everything is bound**: Chromium exposes
+`AccessibilityNodeInfo.targetUrl` inconsistently (9 nodes on one run, 0 on the next), and the OPPO
+independently logs `ClipboardService: Denying clipboard access ... not in focus`, so the background
+clipboard fallback cannot work. Share, paste and `ACTION_PROCESS_TEXT` are the reliable routes. Read
+`TEST_REPORT.md` §51 **before** §50 — §50's conclusion that copy detection is impossible was wrong.
+
+### 15.5 Open items carried forward
+
+- Publish `v3.2.0-enhanced.1` as a **new** release, keeping `v3.1.1-enhanced.3` for rollback. The
+  artifacts are built, signed and digest-verified but the upload is deliberately held back until the
+  phone pass in §15.4 confirms the build is good.
+- Move `E:\Deepseek\Linksi\keys-backup-20260918\` outside `E:\Deepseek\Linksi\` so a delete of the
+  project folder cannot take the keystores with it.
+- The GitHub token is still embedded in `origin`'s URL in `.git/config`; it can be moved to a
+  credential helper.
+- `POST_NOTIFICATIONS` still needs the manual permission walkthrough on the device.
+
