@@ -168,10 +168,11 @@ class DownloadStallDetector(
             sawBytes = true
         } else if (wasComplete && !complete) {
             // A *new stream* has begun after the previous one finished. Its byte count legitimately
-            // starts lower than the finished stream's, so it would never clear the "greater than the
-            // last count" test, and the clock would still be reading from the stream before it. In
-            // the real incident this is exactly the stream that hung: the video completed, the audio
-            // was requested, and the audio then stopped.
+            // starts lower than the finished stream's, so establish the new stream's baseline before
+            // applying the "greater than the last count" test. Otherwise the clock would still be
+            // reading from the stream before it. In the real incident this is exactly the stream that
+            // hung: the video completed, the audio was requested, and the audio then stopped.
+            lastBytes.set(bytesDownloaded)
             lastProgressAt = now
         }
         return isStalled(now)

@@ -2883,3 +2883,168 @@ noted in the test so the next reader does not repeat it. `UrlCleanerTest` is **6
 This is the fourth defect found by driving the app with real input rather than fixtures, and the second
 one this session where the *test's* expectation was the thing at fault. Both patterns are recorded as
 traps in `SESSION_HANDOVER.md` §5.
+
+---
+
+## 44. Addendum 33 — a regression caught by the device test, and `DATA` being unqueryable
+
+### 44.1 What happened
+
+A concurrent writer refactored `MediaStoreSink` while this session was paused. The refactor **removed the
+filesystem-first publish fallback** and replaced it with a stricter check that trusts only the handle's
+own row. The motivation was legitimate, and it was a hole in the previous code:
+
+> The earlier `publishedFileOnDisk` matched *any* Downloads row of the same name and size, so on a
+> collision it could hand back a **different operation's file**. The new writer added a test for exactly
+> that — `sameSizeRowsAndHigherCollisionSuffixesCannotClaimAnotherOperation`.
+
+But removing the fallback also removed the recovery, and the very next device run caught it.
+`PublishFallbackInstrumentedTest` had **not** been changed, and still expected the old, correct behaviour:
+
+```
+AssertionError: a download whose bytes are complete must not be reported as a failure:
+  Failed(error=NO_STORAGE, detail=the finished download could not be published, httpCode=null, transient=false)
+```
+
+The bytes were complete and on disk. The user was told **"Not enough storage is available."** That is
+precisely the defect this sink has now been fixed for twice (§27.3, §35), and it is the clearest
+illustration in this report of why an existing device test must not be discarded when the implementation
+behind it is rewritten.
+
+### 44.2 Root cause of the missing recovery: `DATA` cannot be queried
+
+The first attempt to restore the fallback kept the previous approach of reading the row's `DATA` column
+to locate the file. On this device that threw:
+
+```
+DIAG query failed: java.lang.IllegalArgumentException: Invalid column data
+```
+
+`MediaStore.MediaColumns.DATA` maps to `_data`, which is not a queryable column through the `Downloads`
+collection on this ROM. The path therefore has to be **derived**, not looked up.
+
+### 44.3 Why every bound in the restored fallback is load-bearing
+
+A second diagnostic listed the Downloads directory during the failing test:
+
+```
+DIAG downloadsDir=/storage/emulated/0/Download canRead=true now=1789702391586
+DIAG file=linksi-fallback-probe (2).mp4 len=65536 mtime=1789702149817   (241 s old)
+DIAG file=linksi-fallback-probe (3).mp4 len=65536 mtime=1789702249097   (143 s old)
+DIAG file=linksi-fallback-probe.mp4     len=65536 mtime=1789702391545   (41 ms old)
+```
+
+**Three files, identical name stem, identical size.** That measurement settles the design:
+
+| Bound | Why it is needed |
+|---|---|
+| Name is the requested one **or** the provider's `name (n).ext` collision form | MediaStore renames on collision, so the requested name is not always the file's name |
+| Exact committed byte size | A partial file must never be reported as complete |
+| Modified at or after the handle opened | Without this, the two older same-size files above would be claimed as this download's |
+
+No single bound is sufficient — **both stale files pass the name and size tests**. It is the conjunction
+that identifies our file, which is simultaneously the safety property the concurrent writer was asking
+for and the recovery this session needed.
+
+### 44.4 Verified on the POCO
+
+| Test | Result |
+|---|---|
+| `aFinishedFileIsReportedFromDiskWhenTheCollectionRefusesToPublishIt` | **PASS** — a complete file is reported from disk again |
+| `sameSizeRowsAndHigherCollisionSuffixesCannotClaimAnotherOperation` | **PASS** — a same-size file from another operation is still not claimed |
+
+Both properties hold at once, which is the point: the earlier code had the first without the second, and
+the refactor had the second without the first.
+
+### 44.5 Totals
+
+| Check | Result |
+|---|---|
+| Regression found by an existing device test | yes — a completed download reported as `NO_STORAGE` |
+| Root cause of the missing recovery | `DATA` is not a queryable column on this ROM |
+| Fix | bounded fallback: name (or collision suffix) + exact size + written-this-handle |
+| `PublishFallbackInstrumentedTest` | **PASS — 2 of 2** |
+| `:app:testDebugUnitTest` | **772 tests, 0 failures** (35 suites, including the concurrent writer's 10 new tests) |
+
+### 44.6 A note on the shared checkout
+
+The refactor arrived in a **dirty working tree written by a second agent**, uncommitted and unreviewed by
+this session. Its code builds and its unit tests pass, but it had silently changed a user-visible
+behaviour that an instrumented test was guarding. `SESSION_HANDOVER.md` §6 carries the full warning and
+the artifact consequences. The short version: **only a device test suite catches a behaviour change in an
+uncommitted branch**, so it must be run before any tree is treated as a release candidate.
+
+---
+
+## 45. Addendum 34 — a second device failure, and this time the test was at fault
+
+### 45.1 The failure
+
+Running the instrumented suites over the same shared tree produced a second failure, in a different
+suite:
+
+```
+ClipboardPanelInstrumentedTest > aReusedSingleTopPanelShowsTheNewExplicitUrl FAILED
+java.lang.AssertionError: Failed to perform checkIsDisplayed check:
+  Expected at most 1 node but found 5 nodes that satisfy
+  (Text + EditableText contains 'https://example.com/first.mp4' (ignoreCase: false))
+```
+
+It failed on the **first** URL, before the reuse behaviour under test was even reached, and it reproduced
+when the class was run alone — so it was not cross-test contamination.
+
+### 45.2 It is the panel's layout, not a defect
+
+The test asserted `onNodeWithText(first).assertIsDisplayed()`, which requires that exactly **one** node
+holds that string. The panel deliberately renders the cleaned URL in more than one place:
+
+| Where | Line |
+|---|---|
+| The URL preview (`UrlPreview`) | `QuickActionPanel.kt:137` |
+| The subtitle of the "Clean URL" action row | `QuickActionPanel.kt:171` |
+| The download row's subtitle, when the link has no formats | `QuickActionPanel.kt:171` region |
+
+The test's URLs are `https://example.com/first.mp4` and `…/second.mp4` — no query string, so the cleaner
+is a **no-op and `cleanedUrl == url`**. Every one of those places therefore holds the identical string,
+and the count the assertion demands cannot hold. The failure is a fact about the panel's layout, not a
+change in behaviour.
+
+### 45.3 Why it surfaced now
+
+The panel's URL-rendering code was not changed by the concurrent writer — their `QuickPanelActivity`
+work added `onNewIntent`/`acceptIntent` so a reused `singleTop` panel picks up a new URL, which is the
+behaviour this very test is about. The assertion is simply fragile: it passed while some other factor
+kept the node count at one (Compose's semantics merging, or the download row not being composed), and any
+change to what is rendered can tip it over. **A test that depends on how many nodes happen to contain a
+string is a test that breaks for reasons unrelated to its subject.**
+
+### 45.4 The fix — make the assertion precise, not looser
+
+The temptation is to swap `onNodeWithText` for `onAllNodesWithText` and assert "at least one". That would
+make the test pass while removing its value: it would no longer distinguish the preview from any other
+place the URL appears.
+
+Instead the preview now carries a stable tag:
+
+```kotlin
+/** Identifies the URL **preview** inside the panel's view hierarchy. */
+const val PANEL_URL_TAG = "quick_panel_url_preview"     // QuickActionPanel.kt
+```
+
+and the test asserts against that node specifically — that it contains the first URL, then the second
+after the reuse, and no longer contains the first. The property under test (a reused panel shows the new
+URL and not the old one) is unchanged and is now checked where it is actually meaningful.
+
+### 45.5 Totals
+
+| Check | Result |
+|---|---|
+| `ClipboardPanelInstrumentedTest` | **PASS — 5 of 5** (was 4 of 5) |
+| Was it a product defect? | **No** — the panel legitimately shows the URL in several places |
+| Was the test at fault? | **Yes** — it asserted a node count it could not rely on |
+| Fix | a `testTag` on the URL preview; assertions target it |
+| `PublishFallbackInstrumentedTest` | **PASS — 2 of 2** (§44) |
+
+This is the **third** time this session that an instrumented run revealed the *test* rather than the
+code, and the first where the remedy was a more precise assertion rather than a corrected expectation.
+All three are recorded as traps in `SESSION_HANDOVER.md` §5.

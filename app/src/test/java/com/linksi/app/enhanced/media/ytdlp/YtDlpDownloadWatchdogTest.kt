@@ -80,6 +80,23 @@ class YtDlpDownloadWatchdogTest {
     }
 
     @Test
+    fun progressInASmallerSecondStreamKeepsTheClockMoving() {
+        val detector = DownloadStallDetector(stallLimitMillis = 10_000L)
+        detector.onProgress(bytesDownloaded = 16_000_000L, totalBytes = 16_000_000L, now = 0L)
+        detector.onProgress(bytesDownloaded = 40_000L, totalBytes = 5_000_000L, now = 600_000L)
+
+        assertFalse(
+            "a later audio sample is progress even though it is below the completed video count",
+            detector.onProgress(
+                bytesDownloaded = 80_000L,
+                totalBytes = 5_000_000L,
+                now = 611_000L
+            )
+        )
+        assertTrue("the audio is stalled only after its own quiet interval", detector.isStalled(now = 621_000L))
+    }
+
+    @Test
     fun aChangingByteCountIsNeverAStall() {
         val detector = DownloadStallDetector(stallLimitMillis = 1_000L)
         var now = 0L

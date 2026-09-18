@@ -14,6 +14,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -95,6 +97,9 @@ class YtDlpUpdater @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
+    /** The updater uses fixed staging/backup names, so two refreshes must never touch them together. */
+    private val refreshLock = Mutex()
+
     /**
      * Refreshes the engine when it has not been checked recently.
      *
@@ -105,10 +110,10 @@ class YtDlpUpdater @Inject constructor(
     suspend fun refreshIfStale(
         now: Long = System.currentTimeMillis(),
         force: Boolean = false
-    ): YtDlpRefreshResult {
+    ): YtDlpRefreshResult = refreshLock.withLock {
         val lastChecked = preferences().getLong(KEY_LAST_CHECKED_AT, 0L)
         if (!force && now - lastChecked < CHECK_INTERVAL_MILLIS) {
-            return YtDlpRefreshResult.Skipped(
+            return@withLock YtDlpRefreshResult.Skipped(
                 "the engine was checked ${(now - lastChecked) / 3_600_000L} hours ago"
             )
         }
@@ -121,7 +126,7 @@ class YtDlpUpdater @Inject constructor(
         // able to hold that download up. The network calls are individually bounded, but a slow
         // connection can still take the sum of them, so the whole attempt gets one budget; running
         // out means the download proceeds on the engine already installed, which is always correct.
-        return withTimeoutOrNull(REFRESH_BUDGET_MILLIS) {
+        return@withLock withTimeoutOrNull(REFRESH_BUDGET_MILLIS) {
             runCatching { refresh() }
                 .getOrElse { error ->
                     if (error is CancellationException) throw error

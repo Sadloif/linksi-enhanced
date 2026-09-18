@@ -79,14 +79,43 @@ class QuickPanelActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // An explicit URL (the link options sheet) wins and short-circuits the clipboard entirely.
+        acceptIntent(intent)
+
+        setContent { LinksTheme { QuickPanelHost() } }
+    }
+
+    /**
+     * `singleTop` reuses this activity when another link or bubble opens the panel. Reset the URL
+     * source for that new request; otherwise the old link remains visible and a second bubble tap
+     * never reads the new clipboard value because [clipboardReadDone] is still true.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptIntent(intent)
+    }
+
+    private fun acceptIntent(intent: Intent?) {
         val explicit = intent?.getStringExtra(DownloadNavigation.EXTRA_PANEL_URL)
         if (!explicit.isNullOrBlank()) {
             panelUrl = explicit
             clipboardReadDone = true
+            clipboardReadListener?.invoke(panelUrl)
+            return
         }
 
-        setContent { LinksTheme { QuickPanelHost() } }
+        // A bubble launch carries no URL. Clear the previous panel immediately, then let the next
+        // focus callback perform the one permitted foreground clipboard read. If this singleTop
+        // instance is already focused, no new focus callback is guaranteed, so read immediately.
+        panelUrl = null
+        clipboardReadDone = false
+        if (hasWindowFocus()) {
+            clipboardReadDone = true
+            panelUrl = ClipboardUrlReader.read(this).url
+            clipboardReadListener?.invoke(panelUrl)
+        } else {
+            clipboardReadListener?.invoke(null)
+        }
     }
 
     /**

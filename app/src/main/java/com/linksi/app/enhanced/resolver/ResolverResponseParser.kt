@@ -4,6 +4,7 @@ import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaFormat
 import com.linksi.app.enhanced.media.MediaInfo
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaSource
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,11 +32,15 @@ import org.json.JSONObject
  *     {
  *       "id": "137", "label": "1080p", "ext": "mp4", "height": 1080, "width": 1920,
  *       "fps": 30, "vcodec": "avc1", "acodec": "none", "filesize": 12345678,
- *       "url": "https://...", "audio_only": false, "requires_muxing": true
+ *       "url": "https://...", "audio_only": false, "requires_muxing": false
  *     }
  *   ]
  * }
  * ```
+ *
+ * The current wire format carries one URL per format. The server must finish any video/audio muxing
+ * before responding and set `requires_muxing` to `false`; an entry marked `true` is filtered rather
+ * than handed to the direct downloader, because one URL cannot represent both input streams.
  *
  * Failure: `{"ok": false, "error": "private content"}` — the text is classified by
  * [MediaError.classify] so a technical server message never reaches the user verbatim.
@@ -55,8 +60,11 @@ object ResolverResponseParser {
             return MediaExtractionResult.Failure(MediaError.classify(error), url)
         }
 
-        val formats = parseFormats(root.optJSONArray("formats"))
-        if (formats.isEmpty()) {
+        val parsedFormats = parseFormats(root.optJSONArray("formats"))
+        if (parsedFormats.formats.isEmpty()) {
+            if (parsedFormats.rejectedMuxingFormat) {
+                return MediaExtractionResult.Unsupported(url, source)
+            }
             return MediaExtractionResult.Failure(MediaError.NO_FORMATS, url)
         }
 
@@ -67,19 +75,30 @@ object ResolverResponseParser {
             uploader = root.optString("uploader").takeIf { it.isNotBlank() },
             durationSeconds = root.optInt("duration", 0).takeIf { it > 0 },
             thumbnailUrl = root.optString("thumbnail").takeIf { it.isNotBlank() },
-            formats = formats
+            formats = parsedFormats.formats
         )
         return MediaExtractionResult.Success(info)
     }
 
-    private fun parseFormats(array: JSONArray?): List<MediaFormat> {
-        if (array == null) return emptyList()
+    private data class ParsedFormats(
+        val formats: List<MediaFormat>,
+        val rejectedMuxingFormat: Boolean
+    )
+
+    private fun parseFormats(array: JSONArray?): ParsedFormats {
+        if (array == null) return ParsedFormats(emptyList(), rejectedMuxingFormat = false)
         val formats = mutableListOf<MediaFormat>()
+        var rejectedMuxingFormat = false
         for (index in 0 until array.length()) {
             val entry = array.optJSONObject(index) ?: continue
-            formats += parseFormat(entry, index)
+            val format = parseFormat(entry, index)
+            if (format.requiresMuxing) {
+                rejectedMuxingFormat = true
+            } else {
+                formats += format
+            }
         }
-        return formats
+        return ParsedFormats(formats, rejectedMuxingFormat)
     }
 
     private fun parseFormat(entry: JSONObject, index: Int): MediaFormat {
@@ -102,7 +121,8 @@ object ResolverResponseParser {
             fileSizeBytes = entry.optLong("filesize", 0L).takeIf { it > 0L },
             isAudioOnly = audioOnly,
             directUrl = entry.optString("url").takeIf { it.isNotBlank() },
-            requiresMuxing = entry.optBoolean("requires_muxing", false)
+            requiresMuxing = entry.optBoolean("requires_muxing", false),
+            backend = MediaBackend.PRIVATE_SERVER
         )
     }
 }

@@ -2,6 +2,7 @@ package com.linksi.app.enhanced.resolver
 
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -112,7 +113,7 @@ class ResolverResponseParserTest {
                 {
                   "id": "137", "label": "1080p", "ext": "mp4", "height": 1080, "width": 1920,
                   "fps": 30, "vcodec": "avc1", "acodec": "none", "filesize": 12345678,
-                  "url": "https://cdn.example/video.mp4", "audio_only": false, "requires_muxing": true
+                  "url": "https://cdn.example/video.mp4", "audio_only": false, "requires_muxing": false
                 }
               ]
             }
@@ -139,7 +140,37 @@ class ResolverResponseParserTest {
         assertEquals(12345678L, format.fileSizeBytes)
         assertFalse(format.isAudioOnly)
         assertEquals("https://cdn.example/video.mp4", format.directUrl)
-        assertTrue(format.requiresMuxing)
+        assertFalse(format.requiresMuxing)
+        assertEquals(MediaBackend.PRIVATE_SERVER, format.backend)
+    }
+
+    @Test
+    fun aMuxingFormatWithOnlyOneUrlIsRejectedAsUnsupported() {
+        val result = parse(
+            """
+            {"ok":true,"title":"t","formats":[
+              {"id":"video-only","ext":"mp4","url":"https://cdn.example/video.mp4",
+               "audio_only":false,"requires_muxing":true}
+            ]}
+            """.trimIndent()
+        )
+
+        assertTrue(result is MediaExtractionResult.Unsupported)
+        assertEquals(source, (result as MediaExtractionResult.Unsupported).source)
+    }
+
+    @Test
+    fun aMuxingFormatIsFilteredWhenACompleteFormatIsAlsoPresent() {
+        val info = success(
+            """
+            {"ok":true,"title":"t","formats":[
+              {"id":"video-only","url":"https://cdn.example/video.mp4","requires_muxing":true},
+              {"id":"complete","url":"https://cdn.example/complete.mp4","requires_muxing":false}
+            ]}
+            """.trimIndent()
+        ).info
+
+        assertEquals(listOf("complete"), info.formats.map { it.id })
     }
 
     @Test

@@ -1,5 +1,14 @@
 package com.linksi.app.enhanced.media
 
+/** Backend that produced a format and therefore owns the download interpretation. */
+enum class MediaBackend {
+    /** The bundled/local extraction path (direct HTTP or yt-dlp, chosen by the worker). */
+    LOCAL,
+
+    /** A private resolver returned a ready-to-fetch media URL. */
+    PRIVATE_SERVER
+}
+
 /**
  * One selectable download format (specification section 19).
  *
@@ -20,7 +29,9 @@ data class MediaFormat(
     /** Direct media URL when the extractor could resolve one; null when a further step is needed. */
     val directUrl: String? = null,
     /** True when video and audio arrive as separate streams and must be merged (FFmpeg needed). */
-    val requiresMuxing: Boolean = false
+    val requiresMuxing: Boolean = false,
+    /** The backend that produced this format; needed when a server format is queued for download. */
+    val backend: MediaBackend = MediaBackend.LOCAL
 ) {
     val isVideo: Boolean get() = !isAudioOnly
 

@@ -7,6 +7,8 @@ import com.linksi.app.enhanced.download.WorkManagerDownloadEngine
 import com.linksi.app.enhanced.media.ExtractorRegistry
 import com.linksi.app.enhanced.media.direct.DirectFileExtractor
 import com.linksi.app.enhanced.media.ytdlp.YtDlpExtractor
+import com.linksi.app.enhanced.resolver.DataStoreMediaResolver
+import com.linksi.app.enhanced.resolver.MediaResolver
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -70,6 +72,14 @@ object EnhancedMediaModule {
         directFile: DirectFileExtractor,
         ytDlp: YtDlpExtractor
     ): ExtractorRegistry = ExtractorRegistry(listOf(directFile, ytDlp))
+
+    /**
+     * Binds the optional resolver behind a DataStore-backed wrapper. No network client is created
+     * and no setting is read until a local extraction has already failed.
+     */
+    @Provides
+    @Singleton
+    fun provideMediaResolver(resolver: DataStoreMediaResolver): MediaResolver = resolver
 
     @Provides
     @Singleton

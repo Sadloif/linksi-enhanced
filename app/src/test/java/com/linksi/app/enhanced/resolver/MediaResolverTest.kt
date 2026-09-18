@@ -4,6 +4,11 @@ import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaSource
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -200,5 +205,41 @@ class MediaResolverTest {
         assertEquals(configured().hashCode(), configured().hashCode())
         assertFalse(configured() == configured(baseUrl = "http://x.example"))
         assertEquals(configured(), configured().copy())
+    }
+
+    @Test
+    fun anHttpsResolverDoesNotFollowAnHttpsToHttpRedirect() = runBlocking {
+        val schemesSeen = mutableListOf<String>()
+        val redirectingClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                schemesSeen += chain.request().url.scheme
+                if (chain.request().url.isHttps) {
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(307)
+                        .message("temporary redirect")
+                        .header("Location", "http://resolver.example/resolve")
+                        .body(ByteArray(0).toResponseBody("text/plain".toMediaType()))
+                        .build()
+                } else {
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("unexpected cleartext request")
+                        .body(ByteArray(0).toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+            }
+            .build()
+
+        val result = HttpMediaResolver(configured(), redirectingClient)
+            .resolve("https://www.example.com/post/1", MediaSource.OTHER)
+
+        assertTrue(result is MediaExtractionResult.Failure)
+        assertEquals(MediaError.SERVER_UNAVAILABLE, (result as MediaExtractionResult.Failure).error)
+        // If cross-scheme redirects were enabled, the interceptor would see a second HTTP request.
+        assertEquals(listOf("https"), schemesSeen)
     }
 }

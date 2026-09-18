@@ -1,6 +1,7 @@
 package com.linksi.app.enhanced.ui
 
 import com.linksi.app.enhanced.download.DownloadDestination
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaFormat
 import com.linksi.app.enhanced.media.MediaInfo
 import com.linksi.app.enhanced.media.MediaSource
@@ -91,6 +92,19 @@ class DownloadUrlMetadataTest {
         val request = DownloadUrlMetadata.requestFor("https://example.com/video", "1080p")
         assertEquals("1080p", request.formatId)
         assertTrue(request.id.contains("1080p"))
+    }
+
+    @Test
+    fun aPrivateServerFormatKeepsItsBackendAndMuxingChoiceOnTheRequest() {
+        val request = DownloadUrlMetadata.requestFor(
+            url = "https://example.com/video",
+            formatId = "server-1080",
+            backend = MediaBackend.PRIVATE_SERVER,
+            requiresMuxing = true
+        )
+
+        assertEquals(MediaBackend.PRIVATE_SERVER, request.backend)
+        assertTrue(request.requiresMuxing)
     }
 
     @Test

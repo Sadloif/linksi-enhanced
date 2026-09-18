@@ -22,6 +22,10 @@ object UrlTextExtractor {
     /** The first HTTP(S) URL in [text], or null. Never returns partial trailing punctuation. */
     fun firstHttpUrl(text: String?): String? = allHttpUrls(text).firstOrNull()
 
+    /** The first URL with a plausible host, skipping earlier malformed HTTP-looking tokens. */
+    fun firstActionableUrl(text: String?): String? =
+        allHttpUrls(text).firstOrNull(::hasPlausibleHost)
+
     /** Every HTTP(S) URL in [text], de-duplicated while preserving order. */
     fun allHttpUrls(text: String?): List<String> {
         if (text.isNullOrBlank()) return emptyList()
@@ -73,8 +77,7 @@ object UrlTextExtractor {
      * an action.
      */
     fun isActionableUrl(text: String?): Boolean {
-        val url = firstHttpUrl(text) ?: return false
-        return hasPlausibleHost(url)
+        return firstActionableUrl(text) != null
     }
 
     private fun hasPlausibleHost(url: String): Boolean {

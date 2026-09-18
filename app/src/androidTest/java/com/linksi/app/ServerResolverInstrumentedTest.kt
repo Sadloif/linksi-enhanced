@@ -77,7 +77,7 @@ class ServerResolverInstrumentedTest {
              "formats":[{"id":"mp4-720","label":"720p","ext":"mp4","height":720,"width":1280,
                          "fps":30,"vcodec":"avc1","acodec":"none","filesize":12345678,
                          "url":"https://cdn.example.com/v.mp4","audio_only":false,
-                         "requires_muxing":true}]}
+                         "requires_muxing":false}]}
         """.trimIndent().toByteArray()
     }
 
@@ -156,6 +156,8 @@ class ServerResolverInstrumentedTest {
 
         // And a well-formed answer is mapped rather than discarded.
         assertTrue("a valid response must parse, was $result", result is MediaExtractionResult.Success)
+        val format = (result as MediaExtractionResult.Success).info.formats.single()
+        assertFalse("the single server URL must represent a complete artifact", format.requiresMuxing)
     }
 
     @Test

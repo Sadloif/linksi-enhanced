@@ -96,9 +96,10 @@ interface DownloadSink {
      * Bytes already stored for [displayName] that this sink could append to, or 0 when the sink
      * cannot resume.
      *
-     * Only a sink backed by a plain file can answer this correctly: see [AppStorageSink] and the
-     * documented MediaStore limitation in [MediaStoreSink]. Returning 0 is always safe - it means
-     * "start from the first byte".
+     * Returning 0 is always safe - it means "start from the first byte". A sink must not infer
+     * that a user-visible final file is a partial download: only an operation-owned partial file
+     * may be reported here. The built-in sinks currently return 0, so a process restart starts a
+     * fresh, independently published file rather than risking an append into unrelated bytes.
      */
     suspend fun resumableBytes(displayName: String): Long = 0L
 
@@ -106,7 +107,8 @@ interface DownloadSink {
      * Opens [displayName] for writing.
      *
      * @param append true only when [resumableBytes] returned a positive offset *and* the server
-     *   agreed to continue from exactly that byte with a `206 Partial Content` response.
+     *   agreed to continue from exactly that byte with a `206 Partial Content` response. A caller
+     *   must not pass true after a zero-byte response from [resumableBytes].
      */
     suspend fun open(displayName: String, mimeType: String?, append: Boolean): SinkHandle
 }

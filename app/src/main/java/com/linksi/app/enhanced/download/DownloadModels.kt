@@ -1,6 +1,7 @@
 package com.linksi.app.enhanced.download
 
 import com.linksi.app.enhanced.media.MediaError
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaInfo
 import com.linksi.app.enhanced.media.MediaSource
 import kotlin.math.roundToInt
@@ -26,7 +27,9 @@ data class DownloadRequest(
     val suggestedFileName: String? = null,
     val destination: DownloadDestination = DownloadDestination.PUBLIC_DOWNLOADS,
     /** True when the format needs video and audio merged, which needs FFmpeg. */
-    val requiresMuxing: Boolean = false
+    val requiresMuxing: Boolean = false,
+    /** Backend that produced the selected format; local is the safe default for old work records. */
+    val backend: MediaBackend = MediaBackend.LOCAL
 )
 
 /**
@@ -131,5 +134,18 @@ object DownloadFormatting {
         } else {
             downloaded
         }
+    }
+}
+
+/** Selects the format a persisted/requested download is asking for, without guessing silently. */
+internal fun selectDownloadFormat(
+    info: MediaInfo,
+    requestedFormatId: String?
+): com.linksi.app.enhanced.media.MediaFormat? {
+    val requested = requestedFormatId?.trim().orEmpty()
+    return if (requested.isEmpty()) {
+        info.formats.firstOrNull()
+    } else {
+        info.formats.firstOrNull { it.id == requested }
     }
 }

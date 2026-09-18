@@ -3,6 +3,7 @@ package com.linksi.app.enhanced.ui
 import com.linksi.app.enhanced.download.DownloadRequest
 import com.linksi.app.enhanced.download.FilenameSanitizer
 import com.linksi.app.enhanced.media.MediaError
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaFormat
 import com.linksi.app.enhanced.media.MediaInfo
 import com.linksi.app.enhanced.media.MediaSource
@@ -111,14 +112,18 @@ object DownloadUrlMetadata {
         formatId: String,
         source: MediaSource = sourceOf(url),
         destination: com.linksi.app.enhanced.download.DownloadDestination =
-            com.linksi.app.enhanced.download.DownloadDestination.PUBLIC_DOWNLOADS
+            com.linksi.app.enhanced.download.DownloadDestination.PUBLIC_DOWNLOADS,
+        backend: MediaBackend = MediaBackend.LOCAL,
+        requiresMuxing: Boolean = false
     ): DownloadRequest = DownloadRequest(
         id = DownloadRequestIds.forUrl(url, formatId),
         url = url,
         source = source,
         formatId = formatId.takeIf { it.isNotBlank() },
         suggestedFileName = fileName(url),
-        destination = destination
+        destination = destination,
+        requiresMuxing = requiresMuxing,
+        backend = backend
     )
 
     /**

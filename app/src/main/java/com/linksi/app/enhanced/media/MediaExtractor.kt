@@ -1,6 +1,7 @@
 package com.linksi.app.enhanced.media
 
 import com.linksi.app.enhanced.capability.RuntimeCapabilities
+import kotlinx.coroutines.CancellationException
 
 /**
  * A replaceable media extraction backend (specification section 16).
@@ -78,14 +79,19 @@ class ExtractorRegistry(private val extractors: List<MediaExtractor> = emptyList
         var unsupported: MediaExtractionResult.Unsupported? = null
 
         for (extractor in candidates) {
-            val result = runCatching { extractor.analyze(url, source) }
-                .getOrElse { error ->
-                    MediaExtractionResult.Failure(
-                        MediaError.EXTRACTOR_FAILED,
-                        url,
-                        error
-                    )
-                }
+            val result = try {
+                extractor.analyze(url, source)
+            } catch (cancelled: CancellationException) {
+                // Cancellation is control flow, not an extractor failure. Converting it into a
+                // value would let a closed panel keep analysing or move on to another backend.
+                throw cancelled
+            } catch (error: Throwable) {
+                MediaExtractionResult.Failure(
+                    MediaError.EXTRACTOR_FAILED,
+                    url,
+                    error
+                )
+            }
 
             when (result) {
                 is MediaExtractionResult.Success -> return result

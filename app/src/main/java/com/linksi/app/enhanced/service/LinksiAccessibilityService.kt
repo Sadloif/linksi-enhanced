@@ -95,12 +95,15 @@ class LinksiAccessibilityService : AccessibilityService() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastForwardedAtMs < MIN_DETECTION_INTERVAL_MS) return
 
+        // Refuse an ignored app before asking the event for its source node or materialising any of
+        // its text. Checking only after readEvent() would make the ignore list a UI filter rather
+        // than the privacy boundary promised to the user.
+        val packageName = event.packageName?.toString()
+        if (LikelyCopyDetector.isIgnoredPackage(packageName, cachedIgnoredPackages)) return
+
         val input = readEvent(event) ?: return
 
-        // 3. Never inspect an ignored package (section 11.3.10).
-        if (LikelyCopyDetector.isIgnoredPackage(input.packageName, cachedIgnoredPackages)) return
-
-        // 4. Pure heuristic, no I/O.
+        // 3. Pure heuristic, no I/O. It repeats the package check defensively for non-service callers.
         val detection = LikelyCopyDetector.detect(input, cachedIgnoredPackages)
         if (detection !is CopyDetection.Detected) return
 

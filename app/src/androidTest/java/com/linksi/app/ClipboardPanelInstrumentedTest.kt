@@ -4,14 +4,27 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.linksi.app.enhanced.detect.ClipboardUrlReader
 import com.linksi.app.enhanced.ui.DownloadNavigation
+import com.linksi.app.enhanced.ui.PANEL_URL_TAG
 import com.linksi.app.enhanced.ui.QuickPanelActivity
 import org.junit.After
 import org.junit.Assert.assertFalse
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -30,6 +43,9 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ClipboardPanelInstrumentedTest {
+
+    @get:Rule
+    val composeRule = createEmptyComposeRule()
 
     private companion object {
         const val TAG = "ClipboardPanelTest"
@@ -76,6 +92,16 @@ class ClipboardPanelInstrumentedTest {
     }
 
     @Test
+    fun aUriClipboardItemIsDiscardedWithoutCoercingItsContent() {
+        clipboard.setPrimaryClip(ClipData.newRawUri("uri", Uri.parse(RAW_URL)))
+
+        val focused = ClipboardUrlReader.read(context, isFocused = true)
+
+        assertFalse("a non-text clipboard item must not be inspected as a URL", focused.hasUrl)
+        assertFalse("a discarded non-text clip must not be reported as readable text", focused.readable)
+    }
+
+    @Test
     fun thePanelCanBeOpenedWithNoExtraSoItFallsBackToTheClipboard() {
         clipboard.setPrimaryClip(ClipData.newPlainText("link", RAW_URL))
 
@@ -95,5 +121,44 @@ class ClipboardPanelInstrumentedTest {
 
         // Give it time to take focus and perform its single clipboard read.
         Thread.sleep(3_000)
+    }
+
+    @Test
+    fun aReusedSingleTopPanelShowsTheNewExplicitUrl() {
+        val first = "https://example.com/first.mp4"
+        val second = "https://example.com/second.mp4"
+
+        ActivityScenario.launch<QuickPanelActivity>(QuickPanelActivity.intentFor(context, first)).use {
+            // Assert about the URL *preview* specifically, not "any node containing this text".
+            // The panel legitimately shows the cleaned URL in more than one place - the preview, and
+            // the subtitle of the "Clean URL" action - and for a URL with no query string the cleaner
+            // is a no-op, so both hold the identical string. A bare onNodeWithText therefore fails
+            // with "Expected at most 1 node but found 5", which is a fact about the panel's layout
+            // rather than a defect. The tag names the node this test means.
+            composeRule.onNodeWithTag(PANEL_URL_TAG).assertTextContains(first)
+
+            context.startActivity(
+                QuickPanelActivity.intentFor(context, second)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithTag(PANEL_URL_TAG)
+                    .fetchSemanticsNodes()
+                    .any { node ->
+                        node.config.getOrNull(SemanticsProperties.Text)
+                            ?.any { it.text.contains(second) } == true
+                    }
+            }
+            composeRule.onNodeWithTag(PANEL_URL_TAG).assertTextContains(second)
+            assertFalse(
+                "the reused panel must not keep rendering the previous URL",
+                composeRule.onNodeWithTag(PANEL_URL_TAG)
+                    .fetchSemanticsNode()
+                    .config
+                    .getOrNull(SemanticsProperties.Text)
+                    ?.any { it.text.contains(first) } == true
+            )
+        }
     }
 }

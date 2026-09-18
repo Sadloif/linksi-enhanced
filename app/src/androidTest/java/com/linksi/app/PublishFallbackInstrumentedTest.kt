@@ -26,7 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -162,6 +164,87 @@ class PublishFallbackInstrumentedTest {
             readable
         )
     }
+
+    @Test
+    fun sameSizeRowsAndHigherCollisionSuffixesCannotClaimAnotherOperation() {
+        assumeTrue(
+            "this tests the MediaStore sink, which is the API 29+ path",
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        )
+
+        val blockers = mutableListOf<Uri>()
+        val unrelated = ByteArray(BODY_BYTES) { 0x5a }
+        repeat(2) {
+            insertPublishedRow(DISPLAY_NAME, unrelated)?.let { blockers += it }
+        }
+        assumeTrue(
+            "this device refused enough rows to exercise a suffix beyond (1)",
+            blockers.size == 2
+        )
+
+        val server = SmallFileServer(BODY_BYTES)
+        this.server = server
+        server.start()
+
+        try {
+            val outcome = runBlocking {
+                DirectFileDownloader(client).download(
+                    DirectDownloadRequest(
+                        url = server.url,
+                        displayName = DISPLAY_NAME,
+                        expectedBytes = BODY_BYTES.toLong()
+                    ),
+                    MediaStoreSink(context)
+                ) {}
+            }
+
+            assertTrue("the current download should still complete: $outcome", outcome is DirectDownloadResult.Completed)
+            val completed = outcome as DirectDownloadResult.Completed
+            assertTrue("completion must identify a MediaStore row", completed.location.startsWith("content://"))
+            assertFalse(
+                "completion must not claim either pre-existing row",
+                blockers.any { it.toString() == completed.location }
+            )
+            assertArrayEquals(
+                "the reported row must contain this operation's bytes, not a same-size blocker",
+                server.bodyCopy(),
+                readableContent(completed.location)
+            )
+        } finally {
+            blockers.forEach { uri -> runCatching { context.contentResolver.delete(uri, null, null) } }
+        }
+    }
+
+    private fun insertPublishedRow(displayName: String, bytes: ByteArray): Uri? {
+        val resolver = context.contentResolver
+        val uri = runCatching {
+            resolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                    put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+            )
+        }.getOrNull() ?: return null
+
+        val published = runCatching {
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no output stream")
+            resolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                null,
+                null
+            ) > 0
+        }.getOrDefault(false)
+        if (!published) runCatching { resolver.delete(uri, null, null) }
+        return uri.takeIf { published }
+    }
+
+    private fun readableContent(location: String): ByteArray =
+        context.contentResolver.openInputStream(Uri.parse(location))?.use { it.readBytes() }
+            ?: error("the published URI was not readable: $location")
 }
 
 /** Serves one small body at a fixed path. Plain HTTP, which the debug variant permits for loopback. */
@@ -175,6 +258,8 @@ private class SmallFileServer(private val bytes: Int) : Closeable {
     private val thread = Thread(::acceptLoop, "linksi-small-file-server").apply { isDaemon = true }
 
     val url: String get() = "http://127.0.0.1:${server.localPort}/probe.mp4"
+
+    fun bodyCopy(): ByteArray = body.copyOf()
 
     fun start() = thread.start()
 

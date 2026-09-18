@@ -12,10 +12,13 @@ import com.linksi.app.enhanced.download.DownloadRequest
 import com.linksi.app.enhanced.download.DownloadState
 import com.linksi.app.enhanced.download.DownloadWorkNaming
 import com.linksi.app.enhanced.media.ExtractorRegistry
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaSourceDetector
 import com.linksi.app.enhanced.media.ytdlp.YtDlpRuntime
+import com.linksi.app.enhanced.resolver.MediaResolver
+import com.linksi.app.enhanced.resolver.resolveLocalThenPrivateServer
 import com.linksi.app.utils.extractDomain
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -126,6 +129,7 @@ data class QuickPanelUiState(
 class QuickPanelViewModel @Inject constructor(
     private val engine: DownloadEngine,
     private val extractors: ExtractorRegistry,
+    private val resolver: MediaResolver,
     private val linkRepository: LinkRepository
 ) : ViewModel() {
 
@@ -166,9 +170,19 @@ class QuickPanelViewModel @Inject constructor(
     }
 
     private suspend fun analyze(url: String) {
-        val result = safeCall {
-            extractors.analyze(url, MediaSourceDetector.fromUrl(url), capabilities)
-        }.getOrElse { failure -> MediaExtractionResult.Failure(MediaError.EXTRACTOR_FAILED, url, failure) }
+        val source = MediaSourceDetector.fromUrl(url)
+        val result = resolveLocalThenPrivateServer(
+            url = url,
+            source = source,
+            local = {
+                safeCall {
+                    extractors.analyze(url, source, capabilities)
+                }.getOrElse { failure ->
+                    MediaExtractionResult.Failure(MediaError.EXTRACTOR_FAILED, url, failure)
+                }
+            },
+            resolver = resolver
+        )
 
         // The panel may have been pointed at another URL (or finished) while the network call was
         // in flight; applying a stale result would show the wrong formats.
@@ -212,10 +226,18 @@ class QuickPanelViewModel @Inject constructor(
      * starts a genuinely separate download.
      */
     fun download(formatId: String) {
-        val url = _uiState.value.panel.cleanedUrl
+        val panel = _uiState.value.panel
+        val url = panel.cleanedUrl
         if (url.isBlank()) return
 
-        val request = DownloadUrlMetadata.requestFor(url, formatId)
+        val selectedFormat = panel.availableFormats.firstOrNull { it.id == formatId }
+        val request = DownloadUrlMetadata.requestFor(
+            url = url,
+            formatId = formatId,
+            source = panel.source,
+            backend = selectedFormat?.backend ?: MediaBackend.LOCAL,
+            requiresMuxing = selectedFormat?.requiresMuxing ?: false
+        )
         val current = _uiState.value.download
         if (current != null && current.downloadId == request.id && !current.phase.isTerminal) return
 

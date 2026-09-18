@@ -96,12 +96,14 @@ object ClipboardUrlReader {
         val clip: ClipData = manager.primaryClip ?: return EMPTY
         if (clip.itemCount == 0) return EMPTY
 
-        // Only text clips are considered. An image or intent clip is discarded unread.
+        // Only literal text clips are considered. `Item.coerceToText()` is intentionally avoided:
+        // for a URI item it may ask a content provider to open and convert the referenced content,
+        // turning this small foreground check into unrelated I/O and inspecting a non-text clip.
         val item = clip.getItemAt(0)
-        val text = item.coerceToText(context)?.toString() ?: item.text?.toString() ?: return EMPTY
+        val text = item.text?.toString() ?: return EMPTY
         if (text.isBlank()) return EMPTY
 
-        val url = UrlTextExtractor.firstHttpUrl(text)?.takeIf { UrlTextExtractor.isActionableUrl(it) }
+        val url = UrlTextExtractor.firstActionableUrl(text)
             ?: return ClipboardReadResult(readable = true)
 
         return ClipboardReadResult(

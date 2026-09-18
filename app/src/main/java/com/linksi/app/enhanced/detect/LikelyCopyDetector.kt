@@ -139,7 +139,7 @@ object LikelyCopyDetector {
     }
 
     private fun String.firstActionableUrl(): String? =
-        UrlTextExtractor.firstHttpUrl(this)?.takeIf { UrlTextExtractor.isActionableUrl(it) }
+        UrlTextExtractor.firstActionableUrl(this)
 
     /** Selections longer than this are treated as a document, not as "the user copied this link". */
     private const val MAX_SELECTION_LENGTH = 4096

@@ -3,9 +3,14 @@ package com.linksi.app.enhanced.resolver
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
 import com.linksi.app.enhanced.media.MediaSource
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -31,11 +36,23 @@ import java.util.concurrent.TimeUnit
  */
 class HttpMediaResolver(
     override val config: ServerResolverConfig,
-    private val client: OkHttpClient = defaultClient(config)
+    client: OkHttpClient = defaultClient(config)
 ) : MediaResolver {
 
     override val id: String = "private-server"
     override val displayName: String = "Private server"
+
+    /**
+     * Force the transport policy even when tests or another caller inject an OkHttp client with
+     * permissive defaults. `followSslRedirects(false)` prevents HTTPS -> HTTP follow-ups, while the
+     * network interceptor is a second line of defence for any request that reaches OkHttp after a
+     * redirect. The resolver must never resend the user's URL over cleartext.
+     */
+    private val httpsOnlyClient: OkHttpClient = client.newBuilder()
+        .followRedirects(true)
+        .followSslRedirects(false)
+        .addNetworkInterceptor(HTTPS_ONLY_INTERCEPTOR)
+        .build()
 
     override suspend fun resolve(url: String, source: MediaSource): MediaExtractionResult {
         if (!config.isUsable) {
@@ -68,18 +85,37 @@ class HttpMediaResolver(
                 return@withContext MediaExtractionResult.Failure(MediaError.SERVER_UNAVAILABLE, url, e)
             }
 
+            val call = try {
+                httpsOnlyClient.newCall(request)
+            } catch (error: Exception) {
+                return@withContext MediaExtractionResult.Failure(
+                    MediaError.SERVER_UNAVAILABLE,
+                    url,
+                    error
+                )
+            }
+
+            // A blocking OkHttp execute does not automatically observe coroutine cancellation. Tie
+            // the two lifecycles together so a closed panel/worker interrupts the socket promptly.
+            val cancellation = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
+                if (cause is CancellationException) call.cancel()
+            }
+
             try {
-                client.newCall(request).execute().use { response ->
+                call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        return@withContext MediaExtractionResult.Failure(
-                            MediaError.SERVER_UNAVAILABLE,
-                            url
-                        )
+                        MediaExtractionResult.Failure(MediaError.SERVER_UNAVAILABLE, url)
+                    } else {
+                        ResolverResponseParser.parse(url, source, response.body?.string())
                     }
-                    ResolverResponseParser.parse(url, source, response.body?.string())
                 }
-            } catch (e: Exception) {
-                MediaExtractionResult.Failure(MediaError.SERVER_UNAVAILABLE, url, e)
+            } catch (cancelled: CancellationException) {
+                // Cancellation is control flow, not a server failure. Let the caller stop cleanly.
+                throw cancelled
+            } catch (error: Exception) {
+                MediaExtractionResult.Failure(MediaError.SERVER_UNAVAILABLE, url, error)
+            } finally {
+                cancellation?.dispose()
             }
         }
     }
@@ -94,6 +130,15 @@ class HttpMediaResolver(
                 .connectTimeout(config.timeoutSeconds.toLong(), TimeUnit.SECONDS)
                 .readTimeout(config.timeoutSeconds.toLong(), TimeUnit.SECONDS)
                 .callTimeout(config.timeoutSeconds.toLong(), TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(false)
                 .build()
+
+        private val HTTPS_ONLY_INTERCEPTOR = Interceptor { chain ->
+            if (!chain.request().url.isHttps) {
+                throw IOException("private resolver requires HTTPS")
+            }
+            chain.proceed(chain.request())
+        }
     }
 }

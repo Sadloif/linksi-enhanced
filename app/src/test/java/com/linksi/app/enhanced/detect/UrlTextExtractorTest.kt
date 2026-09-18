@@ -184,6 +184,17 @@ class UrlTextExtractorTest {
     }
 
     @Test
+    fun firstActionableUrlSkipsAnEarlierMalformedHost() {
+        val text = "ignore https://intranethost/path and use https://example.com/media"
+
+        assertEquals(
+            "https://example.com/media",
+            UrlTextExtractor.firstActionableUrl(text)
+        )
+        assertTrue(UrlTextExtractor.isActionableUrl(text))
+    }
+
+    @Test
     fun urlsOnSeparateLinesAreAllFound() {
         assertUrls(
             listOf("https://a.example/1", "https://b.example/2"),

@@ -1,10 +1,12 @@
 package com.linksi.app.enhanced.media
 
 import com.linksi.app.enhanced.capability.RuntimeCapabilities
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -309,6 +311,26 @@ class ExtractorRegistryTest {
         assertTrue(failure.cause is IllegalStateException)
         assertEquals("throwing exploded", failure.cause?.message)
         assertEquals("error_download_failed", failure.error.messageKey)
+    }
+
+    @Test
+    fun cancellationFromAnExtractorIsNotConvertedIntoAFailure() {
+        val cancelling = object : MediaExtractor {
+            override val id: String = "cancelling"
+            override val displayName: String = "Cancelling"
+            override fun supports(source: MediaSource, url: String): Boolean = true
+            override fun isAvailable(capabilities: RuntimeCapabilities): Boolean = true
+            override suspend fun analyze(url: String, source: MediaSource): MediaExtractionResult {
+                throw CancellationException("panel closed")
+            }
+        }
+
+        val registry = ExtractorRegistry(listOf(cancelling, FakeExtractor("must-not-run")))
+
+        assertThrows(CancellationException::class.java) {
+            analyze(registry)
+        }
+        assertFalse("cancellation must stop extractor fallback", "must-not-run" in calls)
     }
 
     @Test

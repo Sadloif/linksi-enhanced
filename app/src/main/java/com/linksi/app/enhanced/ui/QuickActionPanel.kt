@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +53,15 @@ import com.linksi.app.R
 import com.linksi.app.enhanced.media.MediaFormat
 import com.linksi.app.enhanced.media.MediaSource
 import java.util.Locale
+
+/**
+ * Identifies the URL **preview** inside the panel's view hierarchy.
+ *
+ * The panel deliberately shows the cleaned URL in more than one place - the preview, and the subtitle
+ * of the "Clean URL" action - so a UI test that looks for "the node containing this URL" finds several
+ * and cannot tell which it is asserting about. This tag names the one a test almost always means.
+ */
+const val PANEL_URL_TAG = "quick_panel_url_preview"
 
 /**
  * Callbacks the quick action panel fires.
@@ -265,8 +275,7 @@ private fun PanelHeader(state: QuickPanelState) {
  * short line saying how many tracking parameters were dropped.
  */
 @Composable
-private fun UrlPreview(
-    state: QuickPanelState,
+private fun UrlPreview(    state: QuickPanelState,
     shownUrl: String,
     showOriginal: Boolean,
     onToggleOriginal: () -> Unit
@@ -294,7 +303,8 @@ private fun UrlPreview(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 4,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag(PANEL_URL_TAG)
             )
 
             if (state.cleaningChanged) {

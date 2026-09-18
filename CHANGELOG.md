@@ -292,6 +292,19 @@ find. Full detail in `TEST_REPORT.md` §39–§41.
   `YtDlpExtractor` documents that the engine's `"Unsupported URL"` is the site's answer — the same value
   returned for a URL no backend supports. The outcome is now recorded per link, so a dead link no longer
   reads as a defect while an app that extracts nothing still fails.
+- **A completed download could be reported as "Not enough storage is available".** A refactor of
+  `MediaStoreSink` removed the filesystem-first publish fallback in favour of trusting only the handle's
+  own MediaStore row. The concern behind that was real — the older fallback matched any Downloads row of
+  the same name and size, so it could claim another operation's file — but removing it also removed the
+  recovery, and the existing device test caught it immediately: a download whose bytes were complete and
+  on disk was reported as `NO_STORAGE`. The fallback is restored and **bounded**: the file must match the
+  requested name (or MediaStore's `name (n).ext` collision form), be exactly the committed size, and have
+  been written during this handle's lifetime. A device run showed three same-named, same-sized files
+  coexisting in Downloads, so no single one of those tests suffices — the conjunction identifies our
+  file, which is the safety property the refactor wanted *and* the recovery it dropped. Both behaviours
+  are now proven at once on the POCO. Also learned: `MediaStore.MediaColumns.DATA` is **not** queryable
+  on this ROM (`Invalid column data`), so the path must be derived rather than looked up.
+  `TEST_REPORT.md` §44.
 
 ---
 

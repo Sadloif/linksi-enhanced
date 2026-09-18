@@ -312,12 +312,43 @@ the run logs `ytdlp-merge1/2/3.log`, which are the raw evidence for `TEST_REPORT
 | An `am instrument` run ends `INSTRUMENTATION_RESULT: shortMsg=Process crashed.` | Check whether **you** killed it: an `am force-stop` issued while the test is running tears the process down and reports exactly this. The run's own logcat still shows its passes (`TEST_REPORT.md` §39) |
 | `tools\build-release.ps1` fails at `:app:packageRelease` with `Unable to allocate 17024776 bytes` / `OutOfMemoryError`, or the daemon disappears | The release packaging (two ABI splits, one 125 MB) needs most of the daemon's 2 GB, and `build-release.ps1` runs `:app:testDebugUnitTest :app:lintDebug` **in the same daemon first**, so packaging starts on a heap the tests already filled. Run `powershell -File tools\build-release.ps1 -SkipChecks` (then run the gates separately) — it succeeded immediately on the first try after four failures. **Do not try to raise the heap: `-Xmx4096m` cannot even start on this machine** (`os::commit_memory … The paging file is too small`, G1 virtual space). 2 GB is the ceiling, not a modest default |
 | `:app:validateSigningRelease FAILED` right after `:app:preBuild` | You invoked `gradlew :app:assembleRelease` directly, so `KEYSTORE_PATH`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD` were never set. Those are supplied by `tools\build-release.ps1`, which reads them from `E:\Deepseek\Linksi\keys\`. Always build releases through the script |
+| `:app:compileReleaseKotlin FAILED` with dozens of phantom `Unresolved reference` for declarations that certainly exist (`LinksTheme`, `buildPanelState`, `panelLabelFor`, …) while the **debug** variant compiles the same source cleanly | **Corrupted Kotlin daemon, not a code error.** Do not edit the source. Stop every daemon, then set `GRADLE_OPTS` to include `-Dkotlin.compiler.execution.strategy=in-process` and retry — that fixed it immediately on 2026-09-18 after the release build died once. Proving the source is fine first is cheap: `gradlew :app:compileDebugKotlin` succeeding while release fails is the signature |
+| `Markdown`/`TEST_REPORT.md` "file has not been read" when editing after a long gap | The session is tracking a stale read. Re-read the file (or a slice of it) before editing; the file itself is fine |
 | A link test fails with "the detector did not recognise a real video link as media" | Almost certainly a **dead link, not a defect**. `MediaExtractionResult.Unsupported` means either "no backend handles this URL" **or** "the engine refused it as not media" — a short link that redirects to the site's home page looks exactly like the latter. `realLinkUrls` entries can be retired at any time; check the engine's own message (`ERROR: Unsupported URL: …`) before touching the classifier. Don't repeat the mistake of asserting the detector failed when the engine refused (`TEST_REPORT.md` §42.4) |
 | A test's expectation looks wrong but the code looks right | Check the test first. Twice this session the *test* was the defect, both times found only by running against real inputs: an assertion that a dead link must be an app failure (`TEST_REPORT.md` §42.4), and a per-item `assumeTrue` that aborted a whole batch on one unreachable site (`TEST_REPORT.md` §41.4) |
+| `IllegalArgumentException: Invalid column data` querying a `MediaStore.Downloads` row | `MediaColumns.DATA` / `_data` is **not queryable** on this ROM. Derive the path from `Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)` plus the display name instead. Note that MediaStore renames on collision, so allow for `name (n).ext` (`TEST_REPORT.md` §44.2) |
+| An instrumented test fails after someone rewrote the code it guards | **Do not "fix" the test to match the new behaviour.** `PublishFallbackInstrumentedTest` failed exactly this way: a refactor that removed the disk fallback made a completed download report `NO_STORAGE`, and the unchanged test was right. Two real properties can be in tension (`TEST_REPORT.md` §44) |
+| A file on disk appears to belong to this download but the fallback declines it | Check the modification time, not just name and size. Three same-named, same-sized files can coexist in Downloads; only the one written during this handle's lifetime is ours |
 
 ---
 
 ## 6. OPEN WORK — in priority order
+
+> **Read this first — the checkout may be shared.**
+>
+> On 2026-09-18 the owner ran **two agents against this one checkout at the same time**. The second
+> writer's work is on the **optional server resolver** (`DataStoreMediaResolver`,
+> `MediaResolverFallback`, `resolveLocalThenPrivateServer`), plus hardening of `MediaStoreSink`,
+> `YtDlpUpdater` and the download sinks, with new tests. As of this handover it is **committed**, but
+> read the rules below before you build or trust anything.
+>
+> **Rules for a shared checkout:**
+>
+> 1. **`git status` before you build, and again before you commit.** If the tree is dirty with files you
+>    did not change, do not `git add -A` — stage your own paths explicitly, or ask the owner.
+> 2. **Do not `git stash` another writer's work** without backing it up first. A patch-and-copy backup
+>    pattern that works is in `local\.probe\concurrent-writer-backup\`.
+> 3. **Run the instrumented suites, not just the unit tests.** The second writer's refactor *built* and
+>    *passed 772 unit tests* while silently changing user-visible behaviour that only a device test
+>    caught — twice (`TEST_REPORT.md` §44 and §45). A green unit run is not a green tree.
+> 4. **When a device test fails after someone rewrote the code it guards, do not edit the test to match.**
+>    One of the two failures above was a real regression; the other was a genuinely fragile test. Decide
+>    which by reading the failure, not by making it pass.
+>
+> **Artifact caution:** the APKs built at 07:50 on 2026-09-18 (arm64 `A2C1EC0D…`, universal `19E9F570…`)
+> contain two of that writer's production files from before the build and **must not be presented as the
+> verified build**. `artifacts\releases\latest-build.json` is the authority for what the current artifacts
+> are.
 
 The watchdog, true transient resume, notification permission and target-SDK items from the previous
 handover are **closed with device evidence** (§10, §11 and `TEST_REPORT.md` §18).

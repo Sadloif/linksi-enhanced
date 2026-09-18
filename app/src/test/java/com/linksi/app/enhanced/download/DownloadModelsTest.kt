@@ -1,6 +1,7 @@
 package com.linksi.app.enhanced.download
 
 import com.linksi.app.enhanced.media.MediaError
+import com.linksi.app.enhanced.media.MediaBackend
 import com.linksi.app.enhanced.media.MediaInfo
 import com.linksi.app.enhanced.media.MediaFormat
 import com.linksi.app.enhanced.media.MediaSource
@@ -72,6 +73,24 @@ class DownloadModelsTest {
         assertNull(request.formatId)
         assertNull(request.suggestedFileName)
         assertFalse(request.requiresMuxing)
+        assertEquals(MediaBackend.LOCAL, request.backend)
+    }
+
+    @Test
+    fun formatSelectionUsesTheRequestedIdAndDoesNotFallBackToAnotherQuality() {
+        val info = MediaInfo(
+            webpageUrl = "https://example.com/video",
+            source = MediaSource.OTHER,
+            title = "clip",
+            formats = listOf(
+                MediaFormat(id = "server-720", label = "720p", extension = "mp4"),
+                MediaFormat(id = "server-1080", label = "1080p", extension = "mp4")
+            )
+        )
+
+        assertEquals("server-1080", selectDownloadFormat(info, "server-1080")?.id)
+        assertNull(selectDownloadFormat(info, "missing"))
+        assertEquals("server-720", selectDownloadFormat(info, null)?.id)
     }
 
     @Test

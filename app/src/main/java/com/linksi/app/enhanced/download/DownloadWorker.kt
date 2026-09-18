@@ -9,10 +9,14 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.linksi.app.enhanced.media.MediaError
 import com.linksi.app.enhanced.media.MediaExtractionResult
+import com.linksi.app.enhanced.media.MediaBackend
+import com.linksi.app.enhanced.media.MediaFormat
 import com.linksi.app.enhanced.media.MediaSource
 import com.linksi.app.enhanced.media.direct.DirectFileExtractor
 import com.linksi.app.enhanced.media.ytdlp.YtDlpDownloadRequest
 import com.linksi.app.enhanced.media.ytdlp.YtDlpDownloader
+import com.linksi.app.enhanced.resolver.MediaResolver
+import com.linksi.app.enhanced.resolver.rejectUnsafePrivateServerFormats
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -53,6 +57,7 @@ class DownloadWorker @AssistedInject constructor(
     private val extractor: DirectFileExtractor,
     private val downloader: DirectFileDownloader,
     private val ytDlp: YtDlpDownloader,
+    private val resolver: MediaResolver,
     private val sinks: DownloadSinkFactory,
     private val notifications: DownloadNotifications
 ) : CoroutineWorker(appContext, params) {
@@ -93,6 +98,13 @@ class DownloadWorker @AssistedInject constructor(
     }
 
     private suspend fun run(request: DownloadRequest, title: String): Result {
+        // The panel marks a request when its local-first analysis had to use the private server.
+        // Resolve again here so WorkManager retries read current settings and get a fresh signed
+        // media URL; importantly, a server format id is never handed to yt-dlp.
+        if (request.backend == MediaBackend.PRIVATE_SERVER) {
+            return downloadWithPrivateServer(request, title)
+        }
+
         // A request that names a site-specific format, or that needs two streams merged, cannot be
         // served by an HTTP GET at all, so it never pays for the direct probe first.
         if (request.needsSiteEngine) {
@@ -114,8 +126,66 @@ class DownloadWorker @AssistedInject constructor(
                 return retryOrFail(request, title, probe.error, probe.cause?.message)
         }
 
-        val format = info.formats.firstOrNull()
-            ?: return fail(request, title, MediaError.NO_FORMATS, null)
+        return downloadResolvedDirect(
+            request = request,
+            title = title,
+            info = info,
+            requireDirectUrl = false,
+            allowSiteEngineFallback = true
+        )
+    }
+
+    /** Resolves the same link through the opted-in server and downloads its selected direct URL. */
+    private suspend fun downloadWithPrivateServer(request: DownloadRequest, title: String): Result {
+        val resolved = try {
+            rejectUnsafePrivateServerFormats(resolver.resolve(request.url, request.source))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            MediaExtractionResult.Failure(MediaError.SERVER_UNAVAILABLE, request.url, error)
+        }
+
+        return when (resolved) {
+            is MediaExtractionResult.Success -> downloadResolvedDirect(
+                request = request,
+                title = title,
+                info = resolved.info,
+                requireDirectUrl = true,
+                // A server response is already the fallback; a document response must not send the
+                // original page to yt-dlp and accidentally bypass the user's server choice.
+                allowSiteEngineFallback = false
+            )
+
+            is MediaExtractionResult.Unsupported ->
+                fail(request, title, resolved.error, null)
+
+            is MediaExtractionResult.Skipped ->
+                fail(request, title, resolved.error, resolved.reason)
+
+            is MediaExtractionResult.Failure ->
+                retryOrFail(request, title, resolved.error, resolved.cause?.message)
+        }
+    }
+
+    /** Downloads a resolved direct format, shared by the native direct and server paths. */
+    private suspend fun downloadResolvedDirect(
+        request: DownloadRequest,
+        title: String,
+        info: com.linksi.app.enhanced.media.MediaInfo,
+        requireDirectUrl: Boolean,
+        allowSiteEngineFallback: Boolean
+    ): Result {
+        val format = selectDownloadFormat(info, request.formatId)
+            ?: return fail(request, title, MediaError.NO_FORMATS, "requested format is unavailable")
+
+        if (!canDownloadPrivateServerFormatDirectly(request, format)) {
+            return fail(
+                request,
+                title,
+                MediaError.UNSUPPORTED_SITE,
+                "private resolver must return a complete artifact"
+            )
+        }
 
         // The user's name wins over the server's; the extension comes from the chosen format.
         val base = request.suggestedFileName?.takeIf { it.isNotBlank() } ?: info.title
@@ -131,9 +201,16 @@ class DownloadWorker @AssistedInject constructor(
 
         publish(request.id, displayName, DownloadState.Downloading(0, format.fileSizeBytes, null))
 
+        val directUrl = format.directUrl?.takeIf { it.isNotBlank() }
+            ?: if (requireDirectUrl) {
+                return fail(request, title, MediaError.EXTRACTOR_FAILED, "resolver returned no media URL")
+            } else {
+                request.url
+            }
+
         val result = downloader.download(
             request = DirectDownloadRequest(
-                url = format.directUrl ?: request.url,
+                url = directUrl,
                 displayName = displayName,
                 expectedBytes = format.fileSizeBytes
             ),
@@ -154,7 +231,7 @@ class DownloadWorker @AssistedInject constructor(
                 // Only this one detail triggers the hand-over. A stalled or refused transfer goes
                 // through the ordinary retry policy instead, because re-running it through a whole
                 // Python interpreter would be slower and no more likely to succeed.
-                if (result.detail == DirectFileDownloader.NOT_A_FILE_DETAIL) {
+                if (allowSiteEngineFallback && result.detail == DirectFileDownloader.NOT_A_FILE_DETAIL) {
                     Log.i(TAG, "download ${request.id} was not a file after all; trying the site engine")
                     return downloadWithYtDlp(request, title)
                 }
@@ -312,6 +389,11 @@ class DownloadWorker @AssistedInject constructor(
  *    [DirectFileExtractor.FORMAT_ID]: the direct-file probe's only format id is its own marker, so
  *    any other id was produced by a site-specific extraction and means nothing to OkHttp.
  */
+internal fun canDownloadPrivateServerFormatDirectly(
+    request: DownloadRequest,
+    format: MediaFormat
+): Boolean = request.backend != MediaBackend.PRIVATE_SERVER || !format.requiresMuxing
+
 private val DownloadRequest.needsSiteEngine: Boolean
     get() = requiresMuxing ||
         (formatId != null && formatId != DirectFileExtractor.FORMAT_ID)
@@ -378,6 +460,7 @@ object DownloadWorkKeys {
     private const val KEY_SOURCE = "download.source"
     private const val KEY_FORMAT_ID = "download.format_id"
     private const val KEY_REQUIRES_MUXING = "download.requires_muxing"
+    private const val KEY_BACKEND = "download.backend"
 
     const val KEY_BYTES = "download.bytes"
     const val KEY_TOTAL = "download.total"
@@ -399,6 +482,7 @@ object DownloadWorkKeys {
         .putString(KEY_SOURCE, request.source.name)
         .putString(KEY_FORMAT_ID, request.formatId)
         .putBoolean(KEY_REQUIRES_MUXING, request.requiresMuxing)
+        .putString(KEY_BACKEND, request.backend.name)
         .build()
 
     fun progress(state: DownloadState.Downloading): Data = workDataOf(
@@ -445,7 +529,10 @@ object DownloadWorkKeys {
             destination = data.getString(KEY_DESTINATION)
                 ?.let { name -> DownloadDestination.values().firstOrNull { it.name == name } }
                 ?: DownloadDestination.PUBLIC_DOWNLOADS,
-            requiresMuxing = data.getBoolean(KEY_REQUIRES_MUXING, false)
+            requiresMuxing = data.getBoolean(KEY_REQUIRES_MUXING, false),
+            backend = data.getString(KEY_BACKEND)
+                ?.let { name -> MediaBackend.values().firstOrNull { it.name == name } }
+                ?: MediaBackend.LOCAL
         )
     }
 
@@ -478,5 +565,6 @@ object DownloadWorkKeys {
             .putString(KEY_SOURCE, request.source.name)
             .putString(KEY_FORMAT_ID, request.formatId)
             .putBoolean(KEY_REQUIRES_MUXING, request.requiresMuxing)
+            .putString(KEY_BACKEND, request.backend.name)
     }
 }

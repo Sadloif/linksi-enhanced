@@ -27,10 +27,8 @@ import java.io.OutputStream
  * **Resume limitation, stated rather than half-implemented:** [resumableBytes] always returns 0.
  * Continuing a MediaStore write means locating the previous `IS_PENDING` row, trusting its
  * reported `SIZE`, and appending through `openOutputStream(uri, "wa")`. That is not verifiable in
- * this environment, and getting it wrong corrupts a file silently, so the research brief's
- * IS_PENDING pattern is implemented exactly and downloads into MediaStore restart from zero. The
- * resume path is implemented where it can be correct - see [AppStorageSink] - and a process kill
- * during either is what the byte-range machinery exists for.
+ * this environment, and getting it wrong corrupts a file silently, so downloads into MediaStore
+ * restart from zero.
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 class MediaStoreSink(private val context: Context) : DownloadSink {
@@ -88,7 +86,7 @@ class MediaStoreSink(private val context: Context) : DownloadSink {
             )
         }
 
-        return Handle(resolver, uri, stream, displayName)
+        return Handle(resolver, uri, displayName, stream)
     }
 
     private fun discard(resolver: ContentResolver, uri: Uri) {
@@ -98,189 +96,159 @@ class MediaStoreSink(private val context: Context) : DownloadSink {
     private class Handle(
         private val resolver: ContentResolver,
         private val uri: Uri,
-        override val output: OutputStream,
-        /** What this entry asked MediaStore to call the file. */
-        private val requestedName: String
+        /** What this entry asked MediaStore to call the file, before any collision suffix. */
+        private val displayName: String,
+        override val output: OutputStream
     ) : SinkHandle {
+
+        /**
+         * When this handle was created, used to prove a file on disk belongs to *this* operation.
+         *
+         * A file of the right name and size that was already there is another operation's work; one
+         * written after we started is ours. Measured on the POCO, three same-named files of identical
+         * size can sit in Downloads at once, so this bound is what makes the fallback safe.
+         */
+        private val openedAt: Long = System.currentTimeMillis()
 
         override val location: String = uri.toString()
 
         override suspend fun commit(bytesWritten: Long): String {
-            if (publish()) return uri.toString()
+            try {
+                output.close()
+            } catch (error: Exception) {
+                throw DownloadSinkException(
+                    MediaError.NO_STORAGE,
+                    "the new Downloads entry could not be closed",
+                    error
+                )
+            }
 
-            // Publishing failed. **Before touching anything**, ask whether the user actually has this
-            // file, and ask the filesystem first.
+            publish(bytesWritten)?.let { return it }
+
+            // The row did not verify. Before reporting failure, ask the only question that matters to
+            // the user: is the finished file actually on disk?
             //
-            // The order of these two checks is deliberate and was corrected after observing the wrong
-            // answer. A MediaStore row is a *claim* that a file exists, and the claim outlives the
-            // file: after the download was deleted from Downloads with the row left behind, the row
-            // check matched, the app reported "Download complete", and the location it handed back
-            // pointed at a file that was not there. A file of the right name and exact size in
-            // Downloads is evidence; a row is bookkeeping. Evidence goes first.
+            // This fallback was briefly removed during a refactor, and the reason is worth recording.
+            // The concern was real: an earlier version matched *any* Downloads row of the same name and
+            // size, so it could hand back a different operation's file. But dropping the fallback
+            // entirely traded one wrong answer for a worse one - a device run showed a complete
+            // download reported as `NO_STORAGE` ("Not enough storage is available") with its bytes
+            // sitting intact on disk. A false failure for a file the user has is the defect this sink
+            // has now been fixed for twice.
             //
-            // The size comparison is what makes the disk check safe: an older file of the same name
-            // cannot be mistaken for this download, and a partial file cannot be reported as complete.
-            val onDisk = publishedFileOnDisk(bytesWritten)
+            // So the fallback is restored and bounded by three independent tests: this handle's own
+            // requested name (or the provider's collision suffix of it), the exact committed size, and
+            // a modification time inside this handle's own write window. Measured on the POCO, three
+            // same-named files of identical size can coexist in Downloads, so no single one of those
+            // tests is sufficient - it is the conjunction that identifies our file.
+            val onDisk = finishedFileOnDisk(displayName, bytesWritten, openedAt)
             if (onDisk != null) {
                 Log.i(TAG, "publishing $uri failed but the finished file is on disk at $onDisk")
                 runCatching { resolver.delete(uri, null, null) }
                 return onDisk.absolutePath
             }
 
-            // No file, but a visible row claims one. MediaStore *renames* an entry whose requested
-            // name is taken ("clip.mp4" arrives as "clip (1).mp4"), so the published entry may be
-            // under the de-duplicated name; this is reported rather than thrown away, because the
-            // collection's own answer is still the best available one when the bytes are in place.
-            val published = findPublishedCopy()
-            if (published != null) {
-                Log.i(TAG, "publishing $uri failed but the file is already published as $published")
-                runCatching { resolver.delete(uri, null, null) }
-                return published
-            }
-
-            // Neither a file nor a published row, so whatever is in the way is residue: an aborted
-            // attempt, or a row whose file is gone. Clear it and try once more.
-            val path = fileName()
-            val cleared = if (path != null) clearConflictingRows(path) else 0
-            if (publish()) {
-                Log.i(TAG, "published after clearing $cleared stale Downloads entr(ies)")
-                return uri.toString()
-            }
-
-            // Still nothing. The entry is deleted unless the user can actually see it, so a hidden
-            // half-entry does not accumulate.
-            if (!rowIsVisible()) {
-                runCatching { resolver.delete(uri, null, null) }
-                throw DownloadSinkException(
-                    MediaError.NO_STORAGE,
-                    "the finished download could not be published"
-                )
-            }
-            return uri.toString()
-        }
-
-        /**
-         * The finished file in the public Downloads directory, or null.
-         *
-         * Matched on the requested name (MediaStore's de-duplicated form included) **and** on the exact
-         * size that was written, so this cannot mistake an older file of the same name for the one just
-         * downloaded, and cannot report a partial file as complete.
-         */
-        private fun publishedFileOnDisk(bytesWritten: Long): File? {
-            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!downloads.isDirectory) return null
-
-            val base = requestedName.substringBeforeLast('.', requestedName)
-            val extension = requestedName.substringAfterLast('.', "")
-            val candidates = listOfNotNull(
-                requestedName,
-                if (extension.isEmpty()) "$base (1)" else "$base (1).$extension"
+            // Nothing of ours is on disk: the only row we may clean up is the one this handle created.
+            runCatching { resolver.delete(uri, null, null) }
+            throw DownloadSinkException(
+                MediaError.NO_STORAGE,
+                "the finished download could not be published"
             )
+        }
 
-            return candidates.asSequence()
-                .map { File(downloads, it) }
-                .firstOrNull { it.isFile && bytesWritten > 0L && it.length() == bytesWritten }
+        /** Flips `IS_PENDING` to 0 and resolves this row's actual provider-assigned identity. */
+        private fun publish(bytesWritten: Long): String? {
+            val values = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+            val updated = runCatching { resolver.update(uri, values, null, null) }.getOrElse { error ->
+                Log.w(TAG, "publishing $uri threw", error)
+                0
+            }
+            if (updated <= 0) {
+                // A zero update count is not proof of failure: some providers complete the move
+                // while reporting zero. The current URI is the only trustworthy follow-up.
+                Log.w(TAG, "publishing $uri returned update count $updated; checking the row")
+            }
+            return currentPublishedIdentity(bytesWritten)
         }
 
         /**
-         * A visible Downloads entry holding this file, other than this one, or null.
+         * Reads only this handle's URI, including the provider's actual collision-suffixed name.
          *
-         * Matched on the requested display name **or** MediaStore's de-duplicated form of it, because
-         * the platform adds a " (1)" suffix when the name is taken. The `IS_PENDING = 0` clause is what
-         * makes the answer meaningful: a pending row is still hidden from the user, so it is not a
-         * published file however good its name looks.
+         * A pending row or a row whose recorded size differs from the committed byte count is not
+         * proof of publication.
          */
-        private fun findPublishedCopy(): String? {
-            val base = requestedName.substringBeforeLast('.', requestedName)
-            val extension = requestedName.substringAfterLast('.', "")
-            val candidates = listOf(requestedName, if (extension.isEmpty()) "$base (1)" else "$base (1).$extension")
-
-            return candidates.firstNotNullOfOrNull { candidate ->
-                queryFirstUri(
-                    "${MediaStore.Downloads.DISPLAY_NAME} = ? AND ${MediaStore.Downloads.IS_PENDING} = 0",
-                    arrayOf(candidate)
-                )
-            }
-        }
-
-        /** The URI of the first row matching [selection], or null. */
-        private fun queryFirstUri(selection: String, args: Array<String>): String? = runCatching {
+        private fun currentPublishedIdentity(bytesWritten: Long): String? = runCatching {
             resolver.query(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.Downloads._ID),
-                selection,
-                args,
+                uri,
+                arrayOf(
+                    MediaStore.Downloads.DISPLAY_NAME,
+                    MediaStore.Downloads.IS_PENDING,
+                    MediaStore.MediaColumns.SIZE
+                ),
+                null,
+                null,
                 null
             )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    Uri.withAppendedPath(
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                        cursor.getString(0)
-                    ).toString()
+                if (!cursor.moveToFirst()) return@use null
+                val actualName = cursor.getString(0)
+                val pending = cursor.getInt(1)
+                val actualSize = if (cursor.isNull(2)) null else cursor.getLong(2)
+                if (pending == 0 && actualSize == bytesWritten) {
+                    Log.i(TAG, "published $uri as $actualName ($actualSize bytes)")
+                    uri.toString()
                 } else {
                     null
                 }
             }
         }.getOrNull()
 
-        /** Flips `IS_PENDING` to 0, reporting whether the entry is visible afterwards. */
-        private fun publish(): Boolean {
-            val values = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
-            val updated = runCatching { resolver.update(uri, values, null, null) }.getOrElse { error ->
-                Log.w(TAG, "publishing $uri threw", error)
-                0
-            }
-            if (updated > 0) return true
-
-            // An update count of 0 is not proof of anything: MediaStore moves a pending file into
-            // place as part of publishing it, and that move was observed reporting zero updated rows
-            // while the file and its row were both still present. So the row is asked directly.
-            return rowIsVisible()
-        }
-
-        /** The on-disk path MediaStore recorded for this entry, or null when it has none. */
-        private fun fileName(): String? = runCatching {
-            resolver.query(uri, arrayOf(MediaStore.Downloads.DATA), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
-            }
+        /**
+         * The finished file on disk for this handle's download, or null when nothing here is ours.
+         *
+         * `DATA` is **not** a queryable column on this ROM - a device run failed with
+         * `IllegalArgumentException: Invalid column data` - so the path has to be derived rather than
+         * looked up. That makes the bounds below load-bearing rather than defensive:
+         *
+         *  - the name must be the one this handle asked for, or the provider's collision-suffixed form
+         *    of it (`clip (1).mp4`), because MediaStore renames on collision;
+         *  - the file must be exactly [bytesWritten] long, so a partial file cannot be reported as
+         *    complete;
+         *  - it must have been modified at or after [openedAt], so a pre-existing file is not claimed.
+         *
+         * The size bound also enforces the guard the row check above makes: a collision-suffixed file
+         * created by an *earlier* operation of the same byte count is rejected by the time bound.
+         */
+        private fun finishedFileOnDisk(
+            requestedName: String,
+            bytesWritten: Long,
+            openedAt: Long
+        ): File? = runCatching {
+            val directory = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS
+            )
+            val candidates = listOf(requestedName) + collisionSuffixedNames(requestedName)
+            candidates
+                .map { File(directory, it) }
+                .firstOrNull { file ->
+                    file.isFile &&
+                        file.length() == bytesWritten &&
+                        file.lastModified() >= openedAt
+                }
         }.getOrNull()
 
         /**
-         * Deletes rows other than this one that claim [path], and reports how many.
+         * The names a provider may substitute for [name] on a collision, up to a small bound.
          *
-         * Scoped to the exact path rather than the display name, so replacing a file the user
-         * previously downloaded under the same name is deliberate and cannot touch anything else.
+         * MediaStore uses the platform's `name (n).ext` convention. Ten is enough for any realistic
+         * directory; beyond that the fallback simply declines and the user gets an honest failure
+         * rather than a guess.
          */
-        private fun clearConflictingRows(path: String): Int = runCatching {
-            val deleted = resolver.delete(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                "${MediaStore.Downloads.DATA} = ? AND ${MediaStore.Downloads._ID} != ?",
-                arrayOf(path, uri.lastPathSegment.orEmpty())
-            )
-            if (deleted > 0) Log.i(TAG, "cleared $deleted stale row(s) for $path")
-            deleted
-        }.getOrElse { error ->
-            Log.w(TAG, "could not clear stale rows for $path", error)
-            0
+        private fun collisionSuffixedNames(name: String): List<String> {
+            val dot = name.lastIndexOf('.')
+            val stem = if (dot > 0) name.substring(0, dot) else name
+            val extension = if (dot > 0) name.substring(dot) else ""
+            return (1..SUFFIX_LIMIT).map { "$stem ($it)$extension" }
         }
-
-        /**
-         * Whether the entry is present *and* no longer pending, asked directly.
-         *
-         * A projection of `IS_PENDING` rather than a bare existence check: a row that is still
-         * pending is still hidden from the user, so it has not been published.
-         */
-        private fun rowIsVisible(): Boolean = runCatching {
-            resolver.query(
-                uri,
-                arrayOf(MediaStore.Downloads.IS_PENDING),
-                null,
-                null,
-                null
-            )?.use { cursor ->
-                cursor.moveToFirst() && cursor.getInt(0) == 0
-            } ?: false
-        }.getOrDefault(false)
 
         override suspend fun abort() {
             runCatching { output.close() }
@@ -290,5 +258,8 @@ class MediaStoreSink(private val context: Context) : DownloadSink {
 
     private companion object {
         const val TAG = "MediaStoreSink"
+
+        /** How many `name (n).ext` variants to consider before declining to guess. */
+        const val SUFFIX_LIMIT = 10
     }
 }
