@@ -383,7 +383,12 @@ adb -s 69ef2e21 shell am instrument -w `
 ```
 
 As of 2026-09-18, **the specification's functional work is complete and every named site is proven with
-real links.** What follows is what remains: two items that need the owner or his hardware, and three that
+real links.** The objective has been verified clause by clause — see `OBJECTIVE_VERIFICATION.md` for the
+matrix and `TEST_REPORT.md` §46 for the gate results taken in one pass against the committed tree
+(772 unit tests / 0 failures, lint 0 errors, 13 instrumented suites / 39 tests / 0 failures, signed APK
+with verified digests and signature).
+
+What follows is what remains: two items that need the owner or his hardware, and three that
 are depth or external.
 
 1. **Physical-device testing on the owner's actual target** (OPPO Reno15 / ColorOS 16). The POCO X3

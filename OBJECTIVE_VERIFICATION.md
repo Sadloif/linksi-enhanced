@@ -4,8 +4,8 @@ This file exists to answer one question: **is the objective actually delivered?*
 the objective to the code that implements it, the test that exercises it, and the evidence that it
 works. `TEST_REPORT.md` holds the measurements; this file holds the mapping.
 
-Compiled 2026-09-18 against commit `94a99a1`, tree clean, release artifact recorded in
-`artifacts\releases\latest-build.json` with commit `94a99a1`.
+Compiled 2026-09-18 against commit `8bed4ea` (which adds documentation only — the source tree is
+`94a99a1`), tree clean, release artifact recorded in `artifacts\releases\latest-build.json`.
 
 ---
 
