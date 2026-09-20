@@ -176,7 +176,7 @@ git checkout enhanced/integration
 git rebase upstream/master
 ```
 
-Option B rewrites this fork's 72 commits. Because the branch is already published, a rebase would require
+Option B rewrites this fork's own commits (72 at merge time, 87 at the time of writing). Because the branch is already published, a rebase would require
 a force-push and would break anyone who had cloned it — acceptable for a single-owner private repo, but it
 is a rewrite, so prefer Option A unless linear history matters.
 
@@ -206,6 +206,6 @@ This fork touched files upstream also touches. The likely conflict points, from 
 
 ### A standing recommendation
 
-The fork carries 72 commits upstream does not have, and upstream is actively developed. Each merge gets
+The fork carries 87 commits upstream does not have (72 at merge time), and upstream is actively developed. Each merge gets
 harder as that number grows. If upstream changes are wanted, take them **in small batches, regularly**
 rather than in one large merge later.

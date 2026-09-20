@@ -1,18 +1,31 @@
 # UPSTREAM_UPDATE_GUIDE.md
 
-How to review and integrate upstream Linksi changes into this private enhanced fork
+How to review and integrate upstream Linksi changes into this enhanced fork
 (specification section 55).
 
-- **Document date**: 2026-09-17
+> **Read §11 first if your only question is "how do I update from upstream?".** It records the
+> 2026-09-18 merge of upstream 3.2.0 — the exact commands, the two files that conflicted, and how they
+> were resolved — plus a condensed checklist. Sections 1-10 are the full review methodology behind it.
+>
+> **Branch naming note.** This guide was first written when the integration branch was called `master`.
+> It is now **`enhanced/integration`**, which is also the repository's default branch. Every command
+> below has been rewritten accordingly, so use `enhanced/integration` literally. `upstream/main` is
+> different: that is upstream's own branch name and is unchanged.
+
+- **Document date**: 2026-09-20 (merge history in §11; methodology written 2026-09-17)
 - **Upstream**: `https://github.com/AsukaAzure/Linksi` (public, MIT-declared — see
   [LICENSE_REVIEW.md](docs/LICENSE_REVIEW.md))
 - **Remote name in this repository**: **`upstream`**, fetch URL
   `https://github.com/AsukaAzure/Linksi.git`, **push URL deliberately disabled** to the literal string
   `DISABLED-do-not-push-to-upstream`
-- **Local default branch**: `main` (upstream's own default is `master`)
-- **`origin`**: **not configured yet** — this fork has no public home. Until one exists, nothing can
-  be pushed anywhere except a local path or a remote you add yourself.
-- **Verified against**: `git remote -v` in this worktree on 2026-09-17
+- **Integration branch / default branch**: **`enhanced/integration`** (upstream's own default is
+  `master`)
+- **`origin`**: `https://github.com/Sadloif/linksi-enhanced` — this fork is **public** since
+  2026-09-20. The credential is embedded in the remote URL so that a plain `git push` works without a
+  credential helper (the sandbox blocks the named pipes git helpers use); `.git/config` is never
+  committed. For anything outside `git` itself, use the JVM helpers in `tools/github/` — `git` and
+  `curl` cannot reach GitHub from this machine on the Windows TLS stack.
+- **Verified against**: `git remote -v` and the merge records in §11, 2026-09-20
 
 ---
 
@@ -51,7 +64,7 @@ Three more rules with concrete failure modes behind them:
 # 0. Be in the private fork, on a clean tree
 Set-Location <repo-parent>\repo        # or wherever this fork is checked out
 git status                              # must be clean
-git branch --show-current               # must be main (or a release branch), not a feature branch
+git branch --show-current               # must be enhanced/integration (or a release branch), not a feature branch
 
 # 1. Confirm the remotes are as expected
 git remote -v
@@ -76,10 +89,10 @@ Branch naming is fixed: **`update/linksi-YYYY-MM`** (year and month of the revie
 
 ```powershell
 $month = (Get-Date -Format 'yyyy-MM')
-git switch -c "update/linksi-$month" main
+git switch -c "update/linksi-$month" enhanced/integration
 ```
 
-One update branch per review. Do not reuse an old one, and do not do the review on `main`: the
+One update branch per review. Do not reuse an old one, and do not do the review on `enhanced/integration`: the
 review's value is that it can be thrown away.
 
 ---
@@ -90,25 +103,25 @@ review's value is that it can be thrown away.
 git fetch upstream --prune --tags
 
 # What has upstream got that we do not?
-git log --oneline main..upstream/main
+git log --oneline enhanced/integration..upstream/main
 
 # …and the inverse: what private work is not upstream?
-git log --oneline upstream/main..main
+git log --oneline upstream/main..enhanced/integration
 
 # How far have the histories diverged?
-git rev-list --left-right --count main...upstream/main
+git rev-list --left-right --count enhanced/integration...upstream/main
 ```
 
-If `git log main..upstream/main` is empty, upstream has nothing new: record that and stop. Do not
+If `git log enhanced/integration..upstream/main` is empty, upstream has nothing new: record that and stop. Do not
 create an empty merge commit.
 
 Useful detail commands:
 
 ```powershell
-git log --stat main..upstream/main                 # files touched per commit
-git diff --stat main...upstream/main               # net difference from the fork point
-git log --merges main..upstream/main               # merges upstream took from elsewhere
-git log --format='%h %ad %an %s' --date=short main..upstream/main
+git log --stat enhanced/integration..upstream/main                 # files touched per commit
+git diff --stat enhanced/integration...upstream/main               # net difference from the fork point
+git log --merges enhanced/integration..upstream/main               # merges upstream took from elsewhere
+git log --format='%h %ad %an %s' --date=short enhanced/integration..upstream/main
 ```
 
 ---
@@ -140,7 +153,7 @@ integrating anything. It is the deliverable of the review; the merge is a conseq
    added/removed/bumped coordinates, new repositories, new plugins. Each new dependency must be put
    through [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) before it is accepted — including the licence
    question, not just the version.
-7. **Files modified** — the complete list (`git diff --name-status main...upstream/main`), split into:
+7. **Files modified** — the complete list (`git diff --name-status enhanced/integration...upstream/main`), split into:
    files this fork has also modified, files this fork has added, and files only upstream changed.
 8. **Conflicts with private modifications** — for every file in both sets, describe the actual
    competing edits, not just the filename. The expected hot spots are the URL logic
@@ -258,7 +271,7 @@ Resolve conflicts by understanding both sides, then re-running the tests. Specif
 
 ## 8. Verify — run the tests, then build
 
-Run these on the update branch, after the cherry-picks/merge and before merging to `main`:
+Run these on the update branch, after the cherry-picks/merge and before merging to `enhanced/integration`:
 
 ```powershell
 $env:JAVA_HOME        = 'C:\Program Files\JetBrains\PyCharm Community Edition 2024.2.4\jbr'
@@ -293,7 +306,7 @@ Record **what was actually run and what the result was**, including failures. If
 or a keystore is unavailable, say so plainly — an upstream update reviewed without a build is a
 paper review, and [TEST_REPORT.md](TEST_REPORT.md) is the model for recording that honestly.
 
-Minimum gate before merging an update branch to `main`:
+Minimum gate before merging an update branch to `enhanced/integration`:
 
 - [ ] `gradlew test` passes (or the failure is pre-existing and identified as such);
 - [ ] the URL harness reports `tests=82 failures=0 errors=0`;
@@ -304,14 +317,14 @@ Minimum gate before merging an update branch to `main`:
 
 ---
 
-## 9. Merge to `main`
+## 9. Merge to `enhanced/integration`
 
 ```powershell
 # final review of the branch as a whole
-git log --oneline main..HEAD
-git diff --stat main...HEAD
+git log --oneline enhanced/integration..HEAD
+git diff --stat enhanced/integration...HEAD
 
-git switch main
+git switch enhanced/integration
 git merge --no-ff "update/linksi-$month"
 git log --oneline -1                     # confirm the merge commit
 ```
@@ -331,21 +344,153 @@ Then:
 ```powershell
 # the whole workflow, condensed
 $month = (Get-Date -Format 'yyyy-MM')
-git switch -c "update/linksi-$month" main
+git switch -c "update/linksi-$month" enhanced/integration
 git fetch upstream --prune --tags
-git log --oneline main..upstream/main              # what is new
-git log --oneline upstream/main..main              # what is private
-git diff --stat main...upstream/main               # the net difference
+git log --oneline enhanced/integration..upstream/main              # what is new
+git log --oneline upstream/main..enhanced/integration              # what is private
+git diff --stat enhanced/integration...upstream/main               # the net difference
 # ... write the ten-point report BEFORE integrating ...
 git cherry-pick -x <sha>                           # or: git merge --no-ff --no-commit upstream/main
 .\gradlew.bat clean test
 powershell -File .\tools\run-urlcleaner-tests.ps1
 .\gradlew.bat lint
 .\gradlew.bat assembleDebug
-git switch main
+git switch enhanced/integration
 git merge --no-ff "update/linksi-$month"
 ```
 
 **Do not, under any circumstances**: push to `upstream`; merge upstream without the report; take a
 database version bump without resolving the collision; or let upstream's README claims into this
 fork's documentation.
+
+---
+
+## 11. The 2026-09-18 merge of upstream 3.2.0 — what actually happened
+
+This is the only upstream integration performed so far, and it is the best available evidence of what
+to expect. Everything here was measured, not predicted.
+
+### 11.1 The operation
+
+```powershell
+git fetch upstream --prune --tags          # upstream/master was at 8725910
+git log --oneline enhanced/integration..upstream/master
+#   f8caa5e  Fix: Metadata fetching from instagram
+#   8725910  Add: Added metadata refresh progress
+#   34fe852  Fix: Fixed button behaviour
+#   ac9693d  Fix: Fixed abnormal behavior when deleting a link
+#   24207cb  Fix: Fixed child folder links appearance
+
+git switch -c update/linksi-2026-09 enhanced/integration
+git merge --no-ff upstream/master          # a merge, deliberately - see 11.4
+```
+
+**A merge, not a rebase.** This fork carries 87 commits upstream does not have (it was 72 at merge
+time; the rest came from the release, documentation and CI work that followed). A rebase would rewrite
+them and force a force-push of a published branch. Merge, then resolve.
+
+### 11.2 What it touched, and what actually conflicted
+
+The merge commit is **`2270690`** (parents `b4be6c7` + `8725910`). It changed **9 files**:
+
+| File | Outcome |
+|---|---|
+| `app/build.gradle` | **CONFLICT** — resolved by hand (§11.3) |
+| `app/src/main/java/com/linksi/app/utils/MetadataFetcher.kt` | **CONFLICT** — resolved by hand (§11.3) |
+| `app/src/main/java/com/linksi/app/data/db/Daos.kt` | clean merge |
+| `app/src/main/java/com/linksi/app/ui/screens/HomeScreen.kt` | clean merge |
+| `app/src/main/java/com/linksi/app/ui/screens/HomeViewModel.kt` | clean merge |
+| `app/src/main/java/com/linksi/app/utils/LinkResolvers.kt` | clean merge (upstream added it, 446 lines) |
+| `app/src/main/res/values{,-es,-ru,-zh}/strings.xml` | clean merge |
+
+**Only two files conflicted**, and both are predictable. The lesson: a 5-commit upstream release may
+touch many files, but the conflicts concentrate in exactly the two places this fork has deliberately
+diverged — version metadata, and duplicated helper functions.
+
+### 11.3 The two resolutions, and the reasoning to reuse
+
+**1. `app/build.gradle` — version metadata only.**
+
+| | targetSdk | versionCode | versionName |
+|---|---|---|---|
+| Upstream 3.2.0 | 34 | 21 | `3.2.0` |
+| This fork before the merge | 36 | 23 | `3.1.1-enhanced.3` |
+| **Resolution** | **36** (fork wins) | **24** | **`3.2.0-enhanced.1`** |
+
+- `targetSdk` stays **36**: that is this fork's baseline, and taking 34 would be a regression.
+- `versionName` takes upstream's `3.2.0` but keeps the `-enhanced` marker.
+- `versionCode` **must always increase past anything already installed** — 23 was on a physical phone,
+  and an equal or lower `versionCode` cannot install over it. That is why it became 24.
+
+**Reuse this logic next time:** fork wins on `targetSdk` and the `-enhanced` marker, upstream wins on
+the version number, and `versionCode` is bumped past the highest installed one.
+
+**2. `MetadataFetcher.kt` — upstream added three helpers this fork had already moved.**
+
+Upstream's commit added `extractDomain`, `isValidUrl` and `normalizeUrl`. This fork had already moved
+them to `UrlNormalizer.kt:22/52/64`. Taking upstream's copies would have been a duplicate-definition
+compile error, so **the fork's side was kept and upstream's helpers are absent**. Upstream's other
+change in that file — removing its hosted scraper API in favour of per-domain resolvers — merged
+cleanly, and the moved helpers still resolve.
+
+**Reuse this logic next time:** when upstream re-adds something this fork relocated, keep the fork's
+location and drop upstream's duplicate. Grep for the symbol before resolving, rather than accepting
+either side wholesale.
+
+### 11.4 Verification that was actually run
+
+```powershell
+.\gradlew.bat :app:compileDebugKotlin      # BUILD SUCCESSFUL
+.\gradlew.bat :app:testDebugUnitTest       # 782 tests, 0 failures
+git grep -n '<<<<<<<' -- app/src          # no conflict markers anywhere
+```
+
+A release was then built, signed and published as `v3.2.0-enhanced.1`, and installed in place on the
+OPPO over `v3.1.1-enhanced.3` **with the user database intact** — which is the real proof that the
+merge did not disturb the schema.
+
+**Database check:** `LinksDatabase.kt` is still `version = 12` after the merge. Upstream 3.2.0 did not
+bump it, so the collision described in §1/§7 did not arise this time. **Check this every time** — it
+is the one conflict that fails silently rather than loudly.
+
+### 11.5 The condensed recipe for next time
+
+```powershell
+Set-Location <repo-parent>\repo
+git status                                  # must be clean
+git remote get-url --push upstream          # must print DISABLED-do-not-push-to-upstream
+git fetch upstream --prune --tags
+
+$month = (Get-Date -Format 'yyyy-MM')
+git switch -c "update/linksi-$month" enhanced/integration
+
+git log  --oneline enhanced/integration..upstream/master    # what is new
+git diff --stat    enhanced/integration...upstream/master   # the net difference
+#   -> if empty, record that and stop; do not create an empty merge commit
+#   -> write the ten-point report (§5) BEFORE integrating
+
+git merge --no-ff upstream/master           # expect conflicts in app/build.gradle and one utils file
+#   resolve per §11.3: fork wins on targetSdk/marker, versionCode bumps past installed,
+#   upstream's re-added duplicates are dropped in favour of this fork's location
+
+.\gradlew.bat :app:testDebugUnitTest        # expect 782+ tests, 0 failures
+.\gradlew.bat lint
+git grep -n '<<<<<<<' -- app/src            # must return nothing
+#   check app/src/main/java/com/linksi/app/data/db/LinksDatabase.kt version number
+
+git switch enhanced/integration
+git merge --no-ff "update/linksi-$month"
+git push origin HEAD:enhanced/integration
+```
+
+Then, because this fork publishes releases: bump `versionCode` past the highest installed value,
+rebuild the signed release, and publish it as a **new** release tag keeping the previous one for
+rollback. See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) and
+[RECOVERY_AND_UPSTREAM.md](RECOVERY_AND_UPSTREAM.md).
+
+### 11.6 What to append here after the next merge
+
+Keep this section current; it is the cheapest possible handover. After integrating upstream again,
+add: the upstream commit range taken, the merge commit hash, the files that conflicted, how each was
+resolved and why, the exact verification commands and their results, and whether
+`LinksDatabase.kt`'s version changed.

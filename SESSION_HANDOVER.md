@@ -674,7 +674,7 @@ fork **is** pushed, released, and now merged with upstream.
 | Fork | `https://github.com/Sadloif/linksi-enhanced` (**public** since 2026-09-20), default branch `enhanced/integration` |
 | HEAD | see §16 — this section was written at `58e6487`, before the release and the publication |
 | Upstream | `AsukaAzure/Linksi`; push URL is deliberately `DISABLED-do-not-push-to-upstream` |
-| Divergence | 5 upstream commits taken, 72 fork commits retained |
+| Divergence | 5 upstream commits taken, 72 fork commits retained at merge time (87 by 2026-09-20) |
 | Conflicts | exactly two — `app/build.gradle` (version metadata) and `MetadataFetcher.kt` (duplicate url helpers) |
 | Released | `v3.1.1-enhanced.3` (keep, for rollback) and `v3.2.0-enhanced.1` |
 | Backups | `backup/pre-replace-20260918/*` for all 10 pre-existing branches, local and remote |

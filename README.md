@@ -156,7 +156,7 @@ signing and verification procedure — including the traps that cost real time h
 | [`BUILD_AND_RELEASE.md`](BUILD_AND_RELEASE.md) | Building, signing, publishing, environment traps |
 | [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.md) | Reading the code |
 | [`RECOVERY_AND_UPSTREAM.md`](RECOVERY_AND_UPSTREAM.md) | Rebuilding from a clean clone; merging upstream updates |
-| [`UPSTREAM_UPDATE_GUIDE.md`](UPSTREAM_UPDATE_GUIDE.md) | Taking a new upstream release without losing the fork |
+| [`UPSTREAM_UPDATE_GUIDE.md`](UPSTREAM_UPDATE_GUIDE.md) | **Updating from upstream** — read §11 for the merge recipe and the last merge's record |
 | [`TEST_REPORT.md`](TEST_REPORT.md) | What has actually been verified, and how |
 | [`SESSION_HANDOVER.md`](SESSION_HANDOVER.md) | Current state and open work |
 | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Bundled third-party components |
