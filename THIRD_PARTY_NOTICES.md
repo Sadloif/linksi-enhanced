@@ -29,4 +29,4 @@ than left implicit.
 - **Private use is unaffected.** Neither licence restricts private modification or private use.
 
 A fuller analysis, including the alternatives considered and their costs, is in
-[DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) and [LICENSE_REVIEW.md](LICENSE_REVIEW.md).
+[DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) and [LICENSE_REVIEW.md](docs/LICENSE_REVIEW.md).

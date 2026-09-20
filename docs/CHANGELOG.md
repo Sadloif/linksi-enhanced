@@ -4,13 +4,13 @@ All notable changes to **Linksi Enhanced** — this private fork of
 [Linksi](https://github.com/AsukaAzure/Linksi) by AsukaAzure — are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
-the versioning conventions described in [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) §5 (never
+the versioning conventions described in [BUILD_AND_RELEASE.md](../BUILD_AND_RELEASE.md) §5 (never
 decrease `versionCode`; the baseline is `versionCode` 20 / `versionName` 3.1.1).
 
 **Nothing in the `Unreleased` section has been released.** The build environment is now complete: the
 app assembles, `:app:testDebugUnitTest` runs **729 tests with 0 failures**, `:app:lintDebug` passes
 with **0 errors**, and a signed release APK is produced from `enhanced/integration`. See
-[TEST_REPORT.md](TEST_REPORT.md) §9 for the evidence and §9.5 for what is still untested.
+[TEST_REPORT.md](../TEST_REPORT.md) §9 for the evidence and §9.5 for what is still untested.
 
 ---
 
@@ -327,7 +327,7 @@ signed with: CN=Linksi Enhanced (private), 4096-bit RSA, APK Signature Scheme v2
 
 **Verified on an Android 16 (API 36) x86_64 emulator**: the release APK installs, launches (no
 crash, `MainActivity` resumed) and renders; the debug build passes 4 on-device flow tests and its
-database contains only cleaned URLs. Full evidence in [TEST_REPORT.md](TEST_REPORT.md) §10.
+database contains only cleaned URLs. Full evidence in [TEST_REPORT.md](../TEST_REPORT.md) §10.
 
 ### Fixed
 
@@ -466,7 +466,7 @@ Everything below is private fork work **on top of** upstream 3.1.1.
 - A genuine defect found by running the new tests rather than by reading the code: `mailto:` URLs were
   misclassified as `MISSING_SCHEME`, because the parser required `://`. `UrlCleaner` now detects an
   explicit `scheme:` prefix and separates `UNSUPPORTED_SCHEME` from `MALFORMED` and `MISSING_SCHEME`.
-  (Details in [TEST_REPORT.md](TEST_REPORT.md) §4.)
+  (Details in [TEST_REPORT.md](../TEST_REPORT.md) §4.)
 
 ### Verified
 
@@ -484,7 +484,7 @@ What has actually been executed, and how:
 ### Not done yet — do not report these as working
 
 - **The APK has not been built.** No APK, no SHA256, no APK size, no ABI list, no signing certificate
-  fingerprint. [TEST_REPORT.md](TEST_REPORT.md) §3 records this as a blocker, and the same is still
+  fingerprint. [TEST_REPORT.md](../TEST_REPORT.md) §3 records this as a blocker, and the same is still
   true: `gradlew :app:test` / `lint` / `assembleDebug` have never run against this code, so even the
   compilation of the modified `MetadataFetcher.kt` and the enhanced modules against the Android
   toolchain is unverified. Only the pure-JVM subset has ever been compiled.

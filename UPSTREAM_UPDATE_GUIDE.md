@@ -5,7 +5,7 @@ How to review and integrate upstream Linksi changes into this private enhanced f
 
 - **Document date**: 2026-09-17
 - **Upstream**: `https://github.com/AsukaAzure/Linksi` (public, MIT-declared — see
-  [LICENSE_REVIEW.md](LICENSE_REVIEW.md))
+  [LICENSE_REVIEW.md](docs/LICENSE_REVIEW.md))
 - **Remote name in this repository**: **`upstream`**, fetch URL
   `https://github.com/AsukaAzure/Linksi.git`, **push URL deliberately disabled** to the literal string
   `DISABLED-do-not-push-to-upstream`
@@ -130,7 +130,7 @@ integrating anything. It is the deliverable of the review; the merge is a conseq
 4. **Android compatibility changes** — `compileSdk`/`targetSdk`/`minSdk` bumps, `enableEdgeToEdge`,
    `enableOnBackInvokedCallback` (predictive back), foreground-service types, storage/MediaStore,
    notification permission, and anything touching 16 KB page-size alignment. Cross-check against
-   [ANDROID16_REQUIREMENTS.md](../research/ANDROID16_REQUIREMENTS.md) and the open gaps in
+   `ANDROID16_REQUIREMENTS.md` and the open gaps in
    [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) §5.
 5. **Database changes** — any `@Database(version = …)` bump, new `Migration`, changed entity,
    changed DAO SQL or changed index. **State the upstream version number and this fork's version
@@ -138,7 +138,7 @@ integrating anything. It is the deliverable of the review; the merge is a conseq
    `exportSchema = false` means there are no schema JSON files to diff against.
 6. **Dependency changes** — every change to `app/build.gradle`, `build.gradle` or `settings.gradle`:
    added/removed/bumped coordinates, new repositories, new plugins. Each new dependency must be put
-   through [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) before it is accepted — including the licence
+   through [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) before it is accepted — including the licence
    question, not just the version.
 7. **Files modified** — the complete list (`git diff --name-status main...upstream/main`), split into:
    files this fork has also modified, files this fork has added, and files only upstream changed.
@@ -224,11 +224,11 @@ Resolve conflicts by understanding both sides, then re-running the tests. Specif
 1. **`app/build.gradle`.** This fork's version is the one that matters: `versionCode` must never
    decrease (baseline 20), and the signing configuration is environment-driven
    ([BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) §3). Take upstream's *dependencies* only after
-   running each through [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md); never take upstream's
+   running each through [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md); never take upstream's
    `compileSdk`/`targetSdk`/`versionCode`/`applicationId` mechanically.
 2. **`AndroidManifest.xml`.** Keep this fork's permission set and the exported/intent-filter shape of
    `ShareReceiverActivity` (`CODE_REVIEW.md` §8.5). Verify any upstream manifest change against
-   [ANDROID16_REQUIREMENTS.md](../research/ANDROID16_REQUIREMENTS.md) — for example a new foreground
+   `ANDROID16_REQUIREMENTS.md` — for example a new foreground
    service needs its `foregroundServiceType` and type-specific permission, and a re-added
    `USE_EXACT_ALARM` is a Play-policy problem.
 3. **Database version collision — the trap.** If upstream bumps `@Database(version = 13)` with its own
@@ -237,7 +237,7 @@ Resolve conflicts by understanding both sides, then re-running the tests. Specif
    - renumber this fork's migration to 14 and add `MIGRATION_13_14`, so the chain is
      `12 → 13 (upstream) → 14 (private)`, or keep this fork at 13 and take upstream's migration only
      if it is byte-equivalent in effect;
-   - write the decision into the report and into [CHANGELOG.md](CHANGELOG.md);
+   - write the decision into the report and into [CHANGELOG.md](docs/CHANGELOG.md);
    - test both upgrade paths (a fresh install *and* an upgrade from 12) — `exportSchema = false`
      (`LinksDatabase.kt:12`) means Room's automatic migration test helper needs schema export enabled
      first.
@@ -299,7 +299,7 @@ Minimum gate before merging an update branch to `main`:
 - [ ] the URL harness reports `tests=82 failures=0 errors=0`;
 - [ ] `assembleDebug` produces an APK;
 - [ ] any database-affecting change has a stated migration plan and both upgrade paths tested;
-- [ ] no new dependency entered the build without a [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) entry;
+- [ ] no new dependency entered the build without a [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) entry;
 - [ ] the ten-point report exists and its "changes to skip" list was honoured.
 
 ---
@@ -318,8 +318,8 @@ git log --oneline -1                     # confirm the merge commit
 
 Then:
 
-1. update [CHANGELOG.md](CHANGELOG.md) — what upstream changes were taken, what was skipped, and why;
-2. update [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) if any dependency changed;
+1. update [CHANGELOG.md](docs/CHANGELOG.md) — what upstream changes were taken, what was skipped, and why;
+2. update [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) if any dependency changed;
 3. keep the report (it is the evidence trail for the next review);
 4. delete the update branch only after the report is committed somewhere durable;
 5. bump `versionCode` if a release follows ([BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) §5).

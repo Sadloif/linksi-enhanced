@@ -4,7 +4,7 @@ Reproducible build and release instructions for the Linksi Enhanced private buil
 
 - **Document date**: 2026-09-17
 - **Applies to**: this repository (`com.linksi.app`, branch `chore/github-actions` and its descendants)
-- **Baseline**: upstream Linksi 3.1.1, `versionCode` 20 — see [CHANGELOG.md](CHANGELOG.md)
+- **Baseline**: upstream Linksi 3.1.1, `versionCode` 20 — see [CHANGELOG.md](docs/CHANGELOG.md)
 - **Honesty note first**: **no APK has been produced from this repository yet.**
   [TEST_REPORT.md](TEST_REPORT.md) records that as a blocker, and the same is still true today. Every
   command below is written to be runnable, but only the ones explicitly marked *verified* have been
@@ -38,7 +38,7 @@ platform-tools
 
 - **34** is what the repository compiles against today (`app/build.gradle:12`).
 - **36** is required the moment Media3 is added (`compileSdk` must rise to 36 for Media3 ≥ 1.5.0, and
-  to 36 specifically for 1.11.x) — see [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) section 4.1.
+  to 36 specifically for 1.11.x) — see [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) section 4.1.
   Platform 35 is included because Media3 1.5.0–1.10.x need it.
 - Licences must be accepted (`sdkmanager --licenses`, or the hash files under `<sdk>/licenses/`).
 
@@ -286,7 +286,7 @@ Also record the signing certificate fingerprint, which is what an in-place updat
 | First enhanced release | must be `versionCode` **≥ 21**; `versionName` should communicate the private line (for example `3.2.0-enhanced.1`) |
 | `applicationId` | **must stay `com.linksi.app`** for any build intended to update an existing install (`app/build.gradle:15`) |
 | Signing certificate | **must be identical** to the certificate of the installed build |
-| Database version | the Room schema is at **version 12**. Any migration must be additive and tested — never destructive (see [CHANGELOG.md](CHANGELOG.md) and `CODE_REVIEW.md` §2.11) |
+| Database version | the Room schema is at **version 12**. Any migration must be additive and tested — never destructive (see [CHANGELOG.md](docs/CHANGELOG.md) and `CODE_REVIEW.md` §2.11) |
 
 ### 5.1 APK naming convention
 
@@ -439,7 +439,7 @@ substitute for `gradlew :app:test`, which compiles the whole module.
 - Native-library packaging (`android:extractNativeLibs`, or `packaging { jniLibs { useLegacyPackaging
   = true } }`) becomes a real decision as soon as a dependency with native code is added — mandatory
   for the GPL `youtubedl-android` route, and a compliance question for any FFmpeg option. See
-  [DEPENDENCY_REVIEW.md](DEPENDENCY_REVIEW.md) §3.
+  [DEPENDENCY_REVIEW.md](docs/DEPENDENCY_REVIEW.md) §3.
 
 ### 7.5 Reading an APK's real contents without installing it
 

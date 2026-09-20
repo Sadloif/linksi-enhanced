@@ -12,7 +12,7 @@ Dependency review for the Linksi Enhanced private build (specification section 5
 - **Baseline app**: `com.linksi.app`, `versionCode` 20, `versionName` 3.1.1, `minSdk` 26,
   `compileSdk`/`targetSdk` 34
 - **Primary source of truth for the media/download candidates**:
-  [DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) (1036 lines, 2026-09-17). Everything in
+  `DEPENDENCY_OPTIONS.md` (1036 lines, 2026-09-17). Everything in
   section 3 below is a *summary* of that document, not a replacement for it; where this file
   compresses, the research file carries the evidence and the confidence markers.
 - **Method**: the versions and coordinates in section 1 were read out of `app/build.gradle`;
@@ -106,7 +106,7 @@ JitPack coordinates are dead for every version ≥ 0.15.0 (`DEPENDENCY_OPTIONS.m
 
 **Every Android in-app extractor library in this space is GPL-3.0, but yt-dlp itself is not.** That
 is the single finding that drives the whole dependency strategy
-([DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) §1).
+(`DEPENDENCY_OPTIONS.md` §1).
 
 | Component | Licence | Copyleft? |
 |---|---|---|
@@ -125,7 +125,7 @@ is the single finding that drives the whole dependency strategy
 **What GPL-3.0 would actually cost.** Linking a GPL-3.0 library makes the APK a combined work: the
 entire app would have to be licensed GPL-3.0, its Corresponding Source conveyed to every recipient,
 Installation Information provided, and no further restrictions imposed
-([DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) §2). The `MediaExtractor` abstraction is
+(`DEPENDENCY_OPTIONS.md` §2). The `MediaExtractor` abstraction is
 good engineering but **does not launder the licence** — the abstraction makes a GPL component
 *replaceable later*, it does not make shipping it now compliant.
 
@@ -145,7 +145,7 @@ floating.
 ## 3. Candidate dependencies for the media/download work
 
 Coordinates, versions and licences are as recorded in
-[DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) §§3-13. **None of these is in the build
+`DEPENDENCY_OPTIONS.md` §§3-13. **None of these is in the build
 yet.**
 
 ### 3.1 Recommended — Media3 / ExoPlayer (Apache-2.0)
@@ -252,7 +252,7 @@ Two related corrections from the same research, recorded so they are not repeate
 ## 5. Forbidden list (one-line reasons)
 
 Forbidden for this project on **licence** grounds — not quality. Quoted and compressed from
-[DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) §12.
+`DEPENDENCY_OPTIONS.md` §12.
 
 | Forbidden | Licence | One-line reason |
 |---|---|---|
@@ -290,7 +290,7 @@ conditional**, not forbidden.
 
 ## 6. Recommended architecture (the dependency decision, in one shape)
 
-Summarised from [DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) §10:
+Summarised from `DEPENDENCY_OPTIONS.md` §10:
 
 ```
 app (MIT)
@@ -334,7 +334,7 @@ Read this section before quoting anything above as fact.
    no version is dynamic.
 2. The licence column in section 1 cross-checks against [LICENSE_REVIEW.md](LICENSE_REVIEW.md) §5,
    which itself records where each licence came from.
-3. Section 2-6 are summaries of [DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md), whose
+3. Section 2-6 are summaries of `DEPENDENCY_OPTIONS.md`, whose
    own confidence markers `[P]`/`[S]`/`[U]` are preserved where this file quotes a specific number.
 
 **Not verified — do not report any of this as working**
@@ -360,7 +360,7 @@ Read this section before quoting anything above as fact.
 8. **The dependency research's own unconfirmed items carry over unchanged** — `certifi`'s licence,
    the per-version `minCompileSdk` enforcement inside published Media3 AARs, the wrapper's bundled
    FFmpeg version, and the exact ABI/minSdk of `ffmpeg-kit-lts-16kb`. The full list is in
-   [DEPENDENCY_OPTIONS.md](../research/DEPENDENCY_OPTIONS.md) §14 ("What I could not confirm").
+   `DEPENDENCY_OPTIONS.md` §14 ("What I could not confirm").
 
 **A separate legal axis, outside software licensing.** Downloading media from Instagram, Facebook,
 TikTok, Pinterest or Reddit may breach those platforms' Terms of Service or, in some
