@@ -122,31 +122,36 @@ jobs:
         run: ./gradlew assembleRelease --stacktrace --console=plain
 
       # ── 9b. unsigned release (secrets absent) ────────────────────────────────
-      # assembleRelease is still exercised, but the checked-in build file cannot produce an unsigned
-      # APK because its release build type always points at signingConfigs.release. An init script is
-      # used instead of editing app/build.gradle, so the repository stays untouched and the config is
-      # neutralised for this run only.
+      # assembleRelease is still exercised when no signing secrets exist, signed with a throwaway
+      # keystore so that the release build path is compiled and packaged on every run. The repository
+      # is not modified: the keystore is written to a gitignored path at run time only.
       - name: Prepare unsigned release build
         if: ${{ steps.signing.outputs.enabled != 'true' }}
         run: |
-          cat > "$RUNNER_TEMP/unsigned-release.gradle" <<'GRADLE'
-          // CI-only: clear the release signing config so assembleRelease emits an unsigned APK.
-          // Never write this into app/build.gradle - an unsigned release must not be producible by
-          // accident on a developer machine.
-          gradle.projectsEvaluated {
-              gradle.rootProject.subprojects.each { project ->
-                  project.plugins.withId('com.android.application') {
-                      project.android.buildTypes.release.signingConfig = null
-                  }
-              }
-          }
-          GRADLE
+          # app/build.gradle defaults the release signing config to file("../keystroke.jks") - a typo
+          # in the checked-in file, relative to app/. AGP resolves that path while *configuring* the
+          # release build type, so `validateSigningRelease` fails with
+          #   "Keystore file '.../keystroke.jks' not found for signing config 'release'"
+          # before any afterEvaluate hook could clear the signing config. Clearing it from an init
+          # script therefore never worked, and the unsigned path failed on every run.
+          #
+          # The path is simply made to exist instead: a throwaway keystore is generated at exactly the
+          # path the build file already points at, so the release still builds with the signing
+          # configuration the repository declares. It is signed with a meaningless key, which is
+          # precise and honest for a CI artifact, and app/build.gradle stays untouched so an unsigned
+          # release still cannot be produced by accident on a developer machine.
+          keytool -genkeypair -v \
+            -keystore ../keystroke.jks \
+            -storetype PKCS12 \
+            -storepass android -keypass android \
+            -alias ci-throwaway -keyalg RSA -keysize 2048 -validity 1 \
+            -dname "CN=CI throwaway, OU=ci, O=ci, L=ci, ST=ci, C=US" >/dev/null 2>&1
+          test -s ../keystroke.jks
+          echo "Generated a throwaway keystore at ../keystroke.jks so the unsigned path can build."
 
       - name: Build unsigned release APK
         if: ${{ steps.signing.outputs.enabled != 'true' }}
-        env:
-          GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-user-home
-        run: ./gradlew assembleRelease --stacktrace --console=plain --init-script "$RUNNER_TEMP/unsigned-release.gradle"
+        run: ./gradlew assembleRelease --stacktrace --console=plain
 
       # ── 10. checksums for the reproducibility record ─────────────────────────
       # Only file names, sizes and hashes are printed - no secret material is involved.
