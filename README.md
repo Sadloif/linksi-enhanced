@@ -1,241 +1,179 @@
-# Linksi — Link Saver for Android
+# Linksi Enhanced
 
 <div align="center">
 
 [![Android API 26+](https://img.shields.io/badge/Android-API%2026%2B-green?logo=android)](https://www.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-100%25-blue?logo=kotlin)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?logo=android)](https://developer.android.com/jetpack/compose)
-[![Material Design 3](https://img.shields.io/badge/Material%20Design-3-6200EA?logo=materialdesign)](https://m3.material.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-*Organize your digital life, one link at a time*
+**A personal, enhanced build of [Linksi](https://github.com/AsukaAzure/Linksi)** — the offline-first
+Android link manager — with link detection, URL cleaning and built-in media downloading added on top.
 
-[Features](#features) • [Tech Stack](#tech-stack) • [Getting Started](#getting-started) • [Building](#building) • [Contributing](#contributing)
+[What's new](#whats-new-in-this-fork) • [Install](#install) • [Modules](#the-five-enhanced-modules) • [Building](#building) • [Credits](#credits)
 
 </div>
 
 ---
 
-## Overview
+## What this is
 
-**Linksi** is a modern, Material Design 3 Android app that helps you save, organize, and rediscover links from anywhere. Save links from Chrome, YouTube, Twitter, Reddit, and any other app using the native Android share sheet. Built with Jetpack Compose for a smooth, responsive experience.
+This repository is a **fork of [AsukaAzure/Linksi](https://github.com/AsukaAzure/Linksi)**, not the
+original project. Linksi itself — the link manager, folders, search, import/export, browser, app lock
+and the rest of the app — was written by **AsukaAzure** and is used here under its MIT licence. Every
+credit for the foundation belongs to them.
 
-Perfect for researchers, content curators, developers, and anyone who finds too many interesting links and needs a better way to organize them.
+Everything this fork adds lives in a single isolated package,
+[`com.linksi.app.enhanced`](app/src/main/java/com/linksi/app/enhanced), so the upstream app keeps
+working exactly as it did. Remove that package and you have upstream Linksi again.
 
----
-<img width="5016" height="2823" alt="linksi_poster" src="https://github.com/user-attachments/assets/a7650e12-942c-42b4-ab44-fc23fc95ef4a" />
-
-## Features
-
-### Core Functionality
-- Save & Auto-Fetch: Save any URL with auto-fetched title, description, and favicon
-- Share Sheet Integration: Appears in Android's native share menu from Chrome, YouTube, Twitter, Reddit, and more
-- Custom Folders: Organize links into custom folders with custom icons and colors
-- Full-Text Search: Search by title, domain, and description across all saved links
-- Favorites & Status Tracking: Mark links as favorites and track read/unread status
-
-### Organization & Navigation
-- Multiple Views: Toggle between grid and list view layouts
-- Smart Sorting: Sort by date, title, or domain — filter by favorites or unread
-- Bulk Actions: Select multiple links to move or delete at once
-- Trash Bin: Recover deleted links within 30 days before permanent deletion
-- AI Link Organizer: Automatically categorize and move links into folders using AI
-
-### Browsing & Import/Export
-- Inbuilt Browser: Quick view and browse saved links without leaving the app
-- Import/Export: Save links as JSON, CSV, or HTML — share your collection
-- Browser Bookmarks Import: Import bookmarks from Chrome, Firefox, and Safari
-- Reminders: Get notifications to review your saved links
-
-### Security & Personalization
-- App Lock & Folder Lock: PIN or biometric authentication for sensitive links
-- Material You Design: Dynamic color theming based on your device's wallpaper
-- Dark Mode Support: Beautiful dark mode for comfortable viewing at any time
-- Smooth Performance: Built with Jetpack Compose for responsive, fluid interactions
+The fork was made to answer one question: *a link manager that can detect, clean and actually
+download the links you throw at it is far more useful than one that only stores them.*
 
 ---
 
-## Tech Stack
+## What's new in this fork
 
-| Layer | Technology |
-|-------|------------|
-| UI Framework | Jetpack Compose, Material Design 3 |
-| Architecture | MVVM + StateFlow |
-| Database | Room Persistence Library |
-| Dependency Injection | Hilt |
-| Image Loading | Coil |
-| Web Scraping | Jsoup |
-| Navigation | Jetpack Compose Navigation |
-| Async Operations | Kotlin Coroutines + Flow |
-| Minimum SDK | API 26 (Android 8.0) |
-| Target SDK | API 34 (Android 14) |
-| Language | 100% Kotlin |
+| | Capability | Where it lives |
+|---|---|---|
+| ✅ | **URL cleaner** — strips tracking parameters (`utm_*`, `fbclid`, `gclid`, Pinterest's, and more) | `utils/UrlCleaner.kt` |
+| ✅ | **Smart link detection** — recognises URLs in text, with a floating bubble to act on them | `enhanced/detect/`, `enhanced/bubble/` |
+| ✅ | **Quick action panel** — 11 actions (clean, save, folder, tags, notes, download, open, share, copy…) | `enhanced/ui/` |
+| ✅ | **Universal media downloader** — pluggable extractor abstraction (site engine + direct file) | `enhanced/media/` |
+| ✅ | **Direct file downloader** — plain HTTP files, resumable, via WorkManager | `enhanced/download/` |
+| ✅ | **Optional server resolver** — off-by-default HTTP fallback for stubborn links | `enhanced/resolver/` |
+| | Everything else | upstream, unchanged |
+
+### URL cleaner
+
+Removes tracking junk without breaking the link. Handles general parameters and site-specific ones
+(Facebook's `fbclid`-family, Pinterest's, plus any `utm_*` prefix), with options for empty parameters
+and fragments. It reports exactly which parameters it removed, so the result is explainable rather
+than magic.
+
+### Smart link detection
+
+An optional accessibility service notices links you copy or select in other apps and offers to act on
+them. It is **best-effort by design**, and it is worth being straight about why: Android 10+ denies
+background clipboard reads
+(`ClipboardService: Denying clipboard access … not in focus` — this is the OS, not a bug here), and
+Chromium exposes a link's target URL only intermittently. The service reads a link from the
+accessibility node when the app publishes it, and falls back to selection events otherwise.
+
+So: **share, paste and text-selection are the reliable routes; sniffing a copy tap is a bonus when it
+works.** If you want guaranteed behaviour, share the link to Linksi.
+
+### Media downloading
+
+The downloader is an **extractor abstraction**, not a hardcoded set of sites — each extractor
+declares what it supports, and a registry picks candidates by capability and priority:
+
+- **Site engine** — `youtubedl-android` (yt-dlp), which handles the overwhelming majority of video
+  sites, with a refreshable engine.
+- **Direct file** — anything that is simply a file over HTTP, resumable, saved through MediaStore or
+  app storage.
+
+Downloads run under **WorkManager**, so they survive the app being backgrounded, and a watchdog kills
+genuinely stuck transfers without killing slow-but-healthy ones.
+
+### Optional server resolver
+
+A fallback that asks a configurable HTTP endpoint to resolve a media URL when local extraction fails.
+**Off by default**, and it does nothing until you supply an endpoint and key — nothing is sent
+anywhere unless you turn it on.
 
 ---
 
-## Project Structure
+## Install
 
+Grab an APK from [Releases](../../releases):
+
+| Build | Size | Use it if |
+|---|---|---|
+| `arm64-v8a` | ~36 MB | Any modern phone (recommended) |
+| `universal` | ~120 MB | You're not sure, or it's not arm64 |
+
+Each release carries a `.sha256` file. The APKs are signed with a private key, so this fork installs
+and upgrades **in place** — but Android will reject it over an APK signed by a different key, which
+would require an uninstall and loss of your saved links.
+
+---
+
+## The five enhanced modules
+
+Everything is optional and independently switchable in **Settings → Enhanced**. The defaults are
+conservative: nothing that needs a permission or a network hop is on until you turn it on.
+
+```text
+com/linksi/app/enhanced/
+├── detect/      smart link detection + clipboard/selection readers
+├── bubble/      the floating bubble and its policy
+├── ui/          quick action panel, downloads screen
+├── download/    WorkManager engine, MediaStore & app-storage sinks
+├── media/       extractor abstraction + yt-dlp and direct-file extractors
+├── resolver/    optional server-side fallback
+└── service/     the accessibility service
 ```
-app/src/main/java/com/linksi/app/
-├── data/
-│   ├── db/
-│   │   ├── Daos.kt              # Database access objects
-│   │   ├── Entities.kt          # Room database entities
-│   │   └── LinksDatabase.kt     # Room database configuration
-│   └── repository/
-│       └── LinkRepository.kt    # Data access abstraction layer
-├── di/
-│   └── AppModule.kt             # Hilt dependency injection setup
-├── domain/
-│   └── model/
-│       └── Models.kt            # Domain models and data classes
-├── ui/
-│   ├── components/
-│   │   ├── Dialogs.kt           # Reusable dialog components
-│   │   └── LinkCards.kt         # Link display card components
-│   ├── screens/
-│   │   ├── FolderScreen.kt      # Folder view implementation
-│   │   ├── HomeScreen.kt        # Main home screen UI
-│   │   ├── HomeViewModel.kt     # Home screen business logic
-│   │   ├── InAppBrowser.kt      # Built-in web browser
-│   │   ├── SettingsScreen.kt    # Settings & preferences UI
-│   │   ├── SettingsViewModel.kt # Settings business logic
-│   │   ├── ShareReceiverActivity.kt # Share intent handler
-│   │   └── TopBar.kt            # App bar and navigation
-│   └── theme/
-│       ├── Theme.kt             # Material 3 theme configuration
-│       └── Typography.kt        # Text styles and typography
-├── utils/
-│   ├── ImportExportManager.kt   # Import/export functionality
-│   ├── MetadataFetcher.kt       # URL metadata scraping logic
-│   └── ...
-├── LinksApplication.kt          # Application class
-└── MainActivity.kt              # Main activity entry point
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-Before you begin, ensure you have the following installed:
-
-- Android Studio: [Hedgehog (2023.1.1)](https://developer.android.com/studio) or newer
-- JDK: Version 17 or later
-- Android SDK: API level 34 with build tools
-- Gradle: 8.4+ (automatically managed)
-
-### Quick Start
-
-1. Clone the repository
-   ```bash
-   git clone https://github.com/AsukaAzure/Linksi.git
-   cd Linksi
-   ```
-
-2. Open in Android Studio
-   - Launch Android Studio
-   - Select File → Open → Navigate to the Linksi folder
-   - Wait for Gradle to sync and index the project
-
-3. Run the app
-   - Connect an Android device (API 26+) or start an emulator
-   - Select your device from the toolbar
-   - Click the Run button or press Shift + F10
 
 ---
 
 ## Building
 
-### Debug Build
+Requires JDK 17, Android SDK with API 36 build tools, and Gradle 8.13 (wrapper included).
 
 ```bash
-./gradlew build
+./gradlew assembleDebug            # app/build/outputs/apk/debug/
+./gradlew test                     # unit tests
+./gradlew assembleRelease          # needs signing env vars, see below
 ```
 
-Output: `app/build/outputs/apk/debug/app-debug.apk`
+Release signing reads environment variables (`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
+`KEY_PASSWORD`); debug builds can be pointed at a keystore with `DEBUG_KEYSTORE_PATH`. The full build,
+signing and verification procedure — including the traps that cost real time here — is in
+[`BUILD_AND_RELEASE.md`](BUILD_AND_RELEASE.md).
 
-### Release Build
+### Tech stack
 
-```bash
-./gradlew assembleRelease
-```
-
-Output: `app/build/outputs/apk/release/app-release.apk`
-
-Note: For a signed release APK, configure your signing key in `build.gradle` or through Android Studio's build signing setup.
-
-### Run Tests
-
-```bash
-./gradlew test
-```
+| Layer | Technology |
+|---|---|
+| UI | Jetpack Compose, Material Design 3 |
+| Architecture | MVVM + StateFlow |
+| Database | Room (schema 12) |
+| DI | Hilt |
+| Images | Coil |
+| Async | Coroutines + Flow, WorkManager |
+| Scraping | Jsoup |
+| Media | youtubedl-android (yt-dlp) + FFmpeg |
+| SDK | min 26, target/compile 36 |
+| Language | 100% Kotlin |
 
 ---
 
-## Roadmap
+## Documentation
 
-### Completed
-- Folder structure and organization
-- Import/Export (JSON, CSV, HTML formats)
-- Share sheet integration
-- Built-in browser
-- Reminders and notifications
-- Trash bin with 30-day retention
-- AI-powered link organization
-- Security features (App Lock & Folder Lock)
+| Document | What it covers |
+|---|---|
+| [`BUILD_AND_RELEASE.md`](BUILD_AND_RELEASE.md) | Building, signing, publishing, environment traps |
+| [`TEST_REPORT.md`](TEST_REPORT.md) | What has actually been verified, and how |
+| [`RECOVERY_AND_UPSTREAM.md`](RECOVERY_AND_UPSTREAM.md) | Rebuilding from a clean clone; merging upstream updates |
+| [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.md) | Reading the code |
+| [`SESSION_HANDOVER.md`](SESSION_HANDOVER.md) | Current state and open work |
+| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Bundled third-party components |
 
 ---
 
-## Contributing
+## Credits
 
-Contributions are welcome! Here's how you can help:
+**[AsukaAzure/Linksi](https://github.com/AsukaAzure/Linksi)** is the original project and the source
+of essentially everything that makes this app good. This fork is a personal extension of their work;
+please star and support the upstream repository rather than this one.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to your branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request with a clear description
-
-### Development Guidelines
-
-- Follow Kotlin naming conventions and Android best practices
-- Use Compose best practices for UI components
-- Keep business logic in ViewModels
-- Write meaningful commit messages
-- Test your changes on multiple API levels
+This is a **private, personal build** — not a supported product, and not accepting contributions or
+feature requests.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
-The published APK also bundles **GPL-3.0** components (the site engine and FFmpeg). Those keep their own
+MIT — see [LICENSE](LICENSE). The bundled site engine and FFmpeg are GPL-3.0 and keep their own
 licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
----
-
-## Acknowledgments
-
-- Built with [Jetpack Compose](https://developer.android.com/jetpack/compose)
-- Designed following [Material Design 3](https://m3.material.io) guidelines
-- Database powered by [Room](https://developer.android.com/topic/libraries/architecture/room)
-- Dependency injection with [Hilt](https://dagger.dev/hilt/)
-
----
-
-## Support
-
-Found a bug or have a feature request? [Open an issue](https://github.com/AsukaAzure/Linksi/issues) on GitHub.
-
----
-
-<div align="center">
-
-Made with love using Kotlin & Jetpack Compose
-
-[Back to Top](#linksi--link-saver-for-android)
-
-</div>
