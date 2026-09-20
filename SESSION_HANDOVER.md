@@ -671,8 +671,8 @@ fork **is** pushed, released, and now merged with upstream.
 
 | Fact | Value |
 |---|---|
-| Fork | `https://github.com/Sadloif/linksi-enhanced` (private), default branch `enhanced/integration` |
-| HEAD | `58e6487` — merge `2270690` (parents `b4be6c7` + upstream `8725910`), tree clean |
+| Fork | `https://github.com/Sadloif/linksi-enhanced` (**public** since 2026-09-20), default branch `enhanced/integration` |
+| HEAD | see §16 — this section was written at `58e6487`, before the release and the publication |
 | Upstream | `AsukaAzure/Linksi`; push URL is deliberately `DISABLED-do-not-push-to-upstream` |
 | Divergence | 5 upstream commits taken, 72 fork commits retained |
 | Conflicts | exactly two — `app/build.gradle` (version metadata) and `MetadataFetcher.kt` (duplicate url helpers) |
@@ -722,9 +722,11 @@ cheap way to snapshot the database before any reinstall.
 
 ### 15.4 What is still unproven
 
-The four enhanced behaviours were requested by the owner and their code is in the installed APK
-(verified by scanning the dex for `EnhancedLinkActions`, `LinkGridCard`, `previewImageUrl`), but
-**no human has yet exercised them on the phone**. They need a hands-on pass:
+> **Superseded by §16.** The four behaviours below were already device-verified on the OPPO before the
+> merge — see `TEST_REPORT.md` §47.5 ("Verified on the OPPO") and §51, which corrects §50. The merge
+> itself changed **nothing** in `app/src/main/java/com/linksi/app/enhanced/`
+> (`git diff 2270690^1 2270690 -- app/src/main/java/com/linksi/app/enhanced` is empty), so it cannot
+> have regressed them. Kept only because the list is a useful manual script.
 
 1. Copy a link in Brave → does the link-copy detection fire and the bubble appear?
 2. Add a link by hand → are *Download*, *URL cleaner* and *Enhanced settings* reachable from the flow?
@@ -747,4 +749,108 @@ clipboard fallback cannot work. Share, paste and `ACTION_PROCESS_TEXT` are the r
 - The GitHub token is still embedded in `origin`'s URL in `.git/config`; it can be moved to a
   credential helper.
 - `POST_NOTIFICATIONS` still needs the manual permission walkthrough on the device.
+
+---
+
+## 16. Closing state — published, public, and CI green
+
+Written at HEAD `b8b51cc`, after §15. This section is the current truth; where §15 disagrees, §16 wins.
+
+### 16.1 The repository is public
+
+`https://github.com/Sadloif/linksi-enhanced` was switched from private to public on 2026-09-20 so it
+could be shared by link. It is **view-and-download for anyone, no invite needed, and nobody can write
+to it** except the owner. Sharing does not require adding a collaborator, which matters because on a
+free plan a private-repo collaborator gets *write* access and push includes deletion.
+
+Before going public the tree was audited for credentials: no token, keystore, password or private key
+has ever been committed, in any commit. The one `.p12` present is `androidTest`'s
+`resolver-test.p12`, a self-signed throwaway for `CN=127.0.0.1` whose password is written in the test
+source itself; it is deliberately kept and documented in `.gitignore`.
+
+### 16.2 Privacy redaction — `b8b51cc`
+
+A read-only audit of the published tree found identifying detail that had no business being public,
+and it was wider than first reported. Redacted in `b8b51cc` across 14 files:
+
+| Was exposed | Where | Now |
+|---|---|---|
+| Both phones' `adb` serials (usable directly with `adb -s`) | 3 spots | placeholders |
+| Exact paths of the keystore, its credentials file and the GitHub token | 7 files | `<repo-parent>\keys\...` |
+| The absolute project path | 89 occurrences | `<repo-parent>` |
+| Real TikTok/Instagram handles from a personal feed | `TEST_REPORT.md` + an androidTest fixture | synthetic handles |
+| Hardcoded machine paths as `tools/build-release.ps1` defaults | 5 parameters | derived from the checkout |
+
+No test result, measurement or finding was altered. `tools/build-release.ps1` gained a `-KeyDir`
+parameter and now derives the keystore, credentials and archive paths, so it works from any clone.
+
+**Known and accepted:** the serials remain in **44 historical commits** (from `4c1d0b8`). Redaction
+adds a commit; it does not rewrite history. Removing them needs `git filter-repo` plus a force-push and
+re-pointing three release tags, or deleting and re-pushing the repository. The owner chose to leave it:
+the serials are not credentials and using them requires physical access to a device with USB debugging
+enabled. Do not re-litigate this without a new reason.
+
+### 16.3 The GitHub token
+
+The token is a classic PAT with `repo` + `workflow` scope — that is write access to **every** repository
+on the account, not just this one. It lives in `keys/github-token.txt` and is embedded in `origin`'s
+URL in `.git/config` (which is what lets a plain `git push` work, since the sandbox blocks the named
+pipes git credential helpers need). It is never committed; `.git/config` is not part of the repo.
+
+It was rotated on 2026-09-20 after the old value was found on disk. The owner has stated it is set to
+**auto-expire**, which is why rotation is not treated as an open risk. Note that regenerating a
+classic PAT preserves the original expiry rather than extending it, and the expiry date cannot be read
+from the API — only from `github.com/settings/tokens`.
+
+### 16.4 CI is green
+
+`.github/workflows/android-build.yml` — "Android build" — passed for the first time on 2026-09-20,
+run [35497123466](https://github.com/Sadloif/linksi-enhanced/actions/runs/35497123466) on `b8b51cc`:
+all 21 steps success, unit tests and lint included, with `linski-apk` (342.9 MB, four APKs) uploaded.
+
+Three defects had to be fixed to get there, and all three are worth knowing because they are not
+obvious:
+
+1. **The trigger never matched this branch.** It listed `main`, `master`, `release/**`; the default
+   branch here is `enhanced/integration`, so the workflow had never once run on the branch that
+   changes. Fixed by adding it (`89ab446`).
+2. **The no-secrets release path had never worked.** `app/build.gradle` defaults the release signing
+   config to `file("../keystroke.jks")` — a typo — and AGP resolves it while *configuring*, so
+   `:app:validateSigningRelease` failed before any init-script workaround could null the config. Fixed
+   by generating a throwaway JKS at exactly that path (`28c7aa5`, `9d4481b`).
+3. **Then `:app:packageRelease` failed with "Failed to read key  from store"** — an *empty* key name,
+   because `KEY_ALIAS`/`KEY_PASSWORD` default to `""`. Fixed by passing throwaway
+   `ci-throwaway`/`android` values (`c6e6316`).
+
+Concurrency note: the workflow uses `cancel-in-progress: true` per branch, so **several rapid pushes
+cancel each other's runs**. A cancelled run is not a failure, but GitHub still emails on failure — that
+is why the owner received notifications for runs that were already superseded.
+
+### 16.5 Documentation layout
+
+The root carried 16 markdown files totalling ~497 KB, which buried the front page. Seven internal
+records moved into `docs/` (`CHANGELOG`, `CODE_REVIEW`, `DEPENDENCY_REVIEW`, `LICENSE_REVIEW`,
+`OBJECTIVE_VERIFICATION`, `OPPO_FIXES_PLAN`, `RESEARCH_COPY_DETECTION_ANDROID16`) and the superseded
+`README_ENHANCED.md` draft was deleted. All 41 relative links in the repository resolve; 8 were broken
+before that change. `README.md` was rewritten as this fork's own front page — it had still been
+upstream's file verbatim, including a `git clone .../AsukaAzure/Linksi.git` quick-start and a "report
+bugs" link to their tracker.
+
+### 16.6 What is genuinely left
+
+Nothing that blocks using or sharing the project. In order of value:
+
+1. **Move `keys-backup-20260918\` outside `<repo-parent>\`.** Raised repeatedly and still not done.
+   It is the only irreversible risk left: a keystore cannot be regenerated, and losing it permanently
+   blocks in-place updates to the published APK.
+2. **`POST_NOTIFICATIONS` manual walkthrough** on the device (§11 has the script).
+3. Optional: rewrite history to drop the 44 commits carrying device serials (§16.2).
+4. Optional: the release is published as a normal release; `v3.1.1-enhanced.3` remains `prerelease`.
+
+### 16.7 Corrections to earlier sections
+
+- §15.4 claimed the four enhanced behaviours were unexercised. Wrong: they were device-verified on the
+  OPPO (`TEST_REPORT.md` §47.5, §51) and the merge never touched `enhanced/`.
+- §15.5 said the release upload was deliberately held back. It was published as `v3.2.0-enhanced.1`.
+- `TEST_REPORT.md` §50 concluded browser copy detection was impossible; §51 retracts it. Read §51.
 
