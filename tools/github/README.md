@@ -34,8 +34,14 @@ above, that setting is missing.
 | Class | Purpose |
 |---|---|
 | `GhGet.java` | Any GET. Prints `STATUS=<code>` then the body. |
-| `GhApi.java` | Any method with an optional JSON body file: `GhApi <METHOD> <url> <token> [bodyFile]` |
-| `GhUpload.java` | Uploads one release asset (binary body): `GhUpload <uploadUrl> <token> <file> <name> [contentType]` |
+| `GhApi.java` | Any method with an optional JSON body file: `GhApi <METHOD> <url> <token> [bodyFile]`. Pass the literal `null` as `bodyFile` for a bodyless call such as `DELETE .../assets/<id>`. |
+| `GhUpload.java` | Uploads one release asset (binary body): `GhUpload <uploadUrl> <token> <file> <name> [contentType]`. Pass the **bare** `upload_url` and let this class add `?name=`; it appends only when the URL has no `name=` already. |
+
+> **Trap, hit once for real:** passing `<uploadUrl>?name=<name>` to `GhUpload` makes it construct
+> `?name=<name>?name=<name>`, and GitHub does not reject that — it stores the whole string as the
+> literal filename, so the assets upload "successfully" under names like
+> `app.apk.name.app.apk`. The release looks populated but every download link is wrong. Verify with
+> the assets endpoint after any upload, and check the `name` field, not just the status code.
 
 ## The full publish sequence
 
@@ -71,6 +77,17 @@ The releases API reports a `digest` field per asset, computed by GitHub. Compare
     "https://api.github.com/repos/$repo/releases/<releaseId>" $token
 # look for "digest":"sha256:<hex>" per asset
 ```
+
+A matching digest proves the *bytes*, not the *name*. Check the bundle of names as well, because a
+mangled name is the failure that actually happened here:
+
+```powershell
+$out = (& "$env:JAVA_HOME\bin\java.exe" tools\github\GhGet.java `
+    "https://api.github.com/repos/$repo/releases/<releaseId>/assets" $token) -join ''
+[regex]::Matches($out, '"name":"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+```
+
+Every name should be exactly what you intended, with no `.name.` inside it.
 
 ## Notes
 

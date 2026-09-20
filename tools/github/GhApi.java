@@ -6,7 +6,9 @@ import java.nio.file.*;
 public class GhApi {
   public static void main(String[] a) throws Exception {
     String method = a[0], url = a[1], token = a[2];
-    String body = a.length > 3 ? Files.readString(Path.of(a[3])) : null;
+    // "null" means "no body". A literal file named null is never useful, so this is a safe sentinel,
+    // and it is how a bodyless DELETE (removing a release asset) is expressed.
+    String body = (a.length > 3 && !"null".equals(a[3])) ? Files.readString(Path.of(a[3])) : null;
 
     HttpClient c = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
     HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
