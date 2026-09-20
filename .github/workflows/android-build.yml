@@ -140,13 +140,21 @@ jobs:
           # configuration the repository declares. It is signed with a meaningless key, which is
           # precise and honest for a CI artifact, and app/build.gradle stays untouched so an unsigned
           # release still cannot be produced by accident on a developer machine.
+          # Store type is JKS deliberately: a PKCS12 store generated here was reported by
+          # ':app:validateSigningRelease' as "not found" even though the file existed, so the
+          # storage format is the likely culprit. JKS is what Gradle's reader handles most simply.
           keytool -genkeypair -v \
             -keystore ../keystroke.jks \
-            -storetype PKCS12 \
+            -storetype JKS \
             -storepass android -keypass android \
             -alias ci-throwaway -keyalg RSA -keysize 2048 -validity 1 \
             -dname "CN=CI throwaway, OU=ci, O=ci, L=ci, ST=ci, C=US" >/dev/null 2>&1
           test -s ../keystroke.jks
+          # The build file resolves this to the checkout root; satisfy both candidate locations in
+          # case the working directory differs from the Gradle project directory.
+          cp ../keystroke.jks ./keystroke.jks 2>/dev/null || true
+          echo "PWD=$(pwd)"
+          ls -l ../keystroke.jks ./keystroke.jks 2>&1 || true
           echo "Generated a throwaway keystore at ../keystroke.jks so the unsigned path can build."
 
       - name: Build unsigned release APK
