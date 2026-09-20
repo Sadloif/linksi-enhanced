@@ -170,8 +170,8 @@ signing and verification procedure — including the traps that cost real time h
 of essentially everything that makes this app good. This fork is a personal extension of their work;
 please star and support the upstream repository rather than this one.
 
-This is a **private, personal build** — not a supported product, and not accepting contributions or
-feature requests.
+This is a **personal build** — not a supported product, and not accepting contributions or
+feature requests. The source is public so it can be read and forked; issues may go unanswered.
 
 ---
 
