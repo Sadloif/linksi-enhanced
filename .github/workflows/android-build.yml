@@ -159,6 +159,16 @@ jobs:
 
       - name: Build unsigned release APK
         if: ${{ steps.signing.outputs.enabled != 'true' }}
+        # The keystore is found, but ':app:packageRelease' then needs the alias and passwords to read
+        # the key out of it. app/build.gradle defaults KEY_ALIAS/KEY_PASSWORD to the empty string, and
+        # packaging with an empty alias fails as "Failed to read key  from store ...: Keystore was
+        # tampered with, or password was incorrect". These are the throwaway values from the step
+        # above; no real secret is involved, which is why they can be written literally here.
+        env:
+          KEYSTORE_PATH: ../keystroke.jks
+          KEYSTORE_PASSWORD: android
+          KEY_ALIAS: ci-throwaway
+          KEY_PASSWORD: android
         run: ./gradlew assembleRelease --stacktrace --console=plain
 
       # ── 10. checksums for the reproducibility record ─────────────────────────
