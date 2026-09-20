@@ -46,8 +46,8 @@ above, that setting is missing.
 ## The full publish sequence
 
 ```powershell
-$token = (Get-Content 'E:\Deepseek\Linksi\keys\github-token.txt' -Raw).Trim()
-$env:JAVA_HOME='E:\Deepseek\Linksi\toolchain\jdk-17'
+$token = (Get-Content '<repo-parent>\keys\github-token.txt' -Raw).Trim()
+$env:JAVA_HOME='<repo-parent>\toolchain\jdk-17'
 $repo = 'Sadloif/linksi-enhanced'
 
 # 1. Push the code (openssl backend required, see above)
@@ -91,7 +91,7 @@ Every name should be exactly what you intended, with no `.name.` inside it.
 
 ## Notes
 
-- The token lives at `E:\Deepseek\Linksi\keys\github-token.txt`, **outside the repository**, and that
+- The token lives at `<repo-parent>\keys\github-token.txt`, **outside the repository**, and that
   directory is never committed.
 - `git remote -v` embeds the token in `origin`'s URL, which is what makes a plain `git push` work without a
   credential helper (the sandbox blocks the named pipes git's helpers need). Be aware it is therefore

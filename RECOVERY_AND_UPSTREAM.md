@@ -29,16 +29,16 @@ These are gitignored or never in the repository, and a clone does not have them:
 
 | Missing | Why it matters | How to restore |
 |---|---|---|
-| **`app/debug.keystore` → actually `E:\Deepseek\Linksi\keys\debug.keystore`** | **This is the trap.** It signed the debug APK installed on the phone. Lose it and a rebuilt app **cannot update in place** — Android refuses a differently-signed package over the installed one, so the app must be uninstalled first, losing its data | **Keep a copy of `E:\Deepseek\Linksi\keys\` somewhere else entirely** |
+| **`app/debug.keystore` → actually `<repo-parent>\keys\debug.keystore`** | **This is the trap.** It signed the debug APK installed on the phone. Lose it and a rebuilt app **cannot update in place** — Android refuses a differently-signed package over the installed one, so the app must be uninstalled first, losing its data | **Keep a copy of `<repo-parent>\keys\` somewhere else entirely** |
 | **`keys/linksi-enhanced-release.jks`** | Signs the published release. Lose it and you can never update the published APK in place again | Same backup |
 | `keys/KEYSTORE_CREDENTIALS.txt` | Store password, key alias, key password | Same backup |
 | `keys/github-token.txt` | Publishing | Regenerate from GitHub if lost |
 | `local.properties` | Holds `sdk.dir` pointing at the Android SDK. Gitignored because it is machine-specific | Recreate one line: `sdk.dir=E\:\\Deepseek\\Linksi\\toolchain\\android-sdk` |
-| `E:\Deepseek\Linksi\toolchain\` (JDK 17, Android SDK) | Not in git at all — it is a toolchain, not source | Reinstall, or copy |
-| `E:\Deepseek\Linksi\local\.gradle-home-main\` | Gradle caches. Not required, but a rebuild re-downloads dependencies without it | Optional |
+| `<repo-parent>\toolchain\` (JDK 17, Android SDK) | Not in git at all — it is a toolchain, not source | Reinstall, or copy |
+| `<repo-parent>\local\.gradle-home-main\` | Gradle caches. Not required, but a rebuild re-downloads dependencies without it | Optional |
 
 **The one item that would actually hurt is the keystore folder.** Everything else is rebuildable or
-re-installable; a signing key is not. Back up `E:\Deepseek\Linksi\keys\` now.
+re-installable; a signing key is not. Back up `<repo-parent>\keys\` now.
 
 ### One environment setting a fresh clone needs
 
@@ -55,11 +55,11 @@ Without it, every `git clone`, `fetch` and `push` fails with
 ### The environment variables the build needs
 
 ```powershell
-$env:JAVA_HOME='E:\Deepseek\Linksi\toolchain\jdk-17'
-$env:GRADLE_USER_HOME='E:\Deepseek\Linksi\local\.gradle-home-main'
-$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\Linksi\local\.tmp -Dkotlin.compiler.execution.strategy=in-process'
-$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\Linksi\keys\debug.keystore'
-$env:ANDROID_HOME='E:\Deepseek\Linksi\toolchain\android-sdk'
+$env:JAVA_HOME='<repo-parent>\toolchain\jdk-17'
+$env:GRADLE_USER_HOME='<repo-parent>\local\.gradle-home-main'
+$env:GRADLE_OPTS='-Djava.io.tmpdir=<repo-parent>\local\.tmp -Dkotlin.compiler.execution.strategy=in-process'
+$env:DEBUG_KEYSTORE_PATH='<repo-parent>\keys\debug.keystore'
+$env:ANDROID_HOME='<repo-parent>\toolchain\android-sdk'
 ```
 
 ---
@@ -154,7 +154,7 @@ automatically, including `HomeScreen.kt`, `HomeViewModel.kt` and `strings.xml`.
 ### How to bring them in
 
 ```powershell
-cd E:\Deepseek\Linksi\repo
+cd <repo-parent>\repo
 git fetch upstream
 git log --oneline HEAD..upstream/master     # see what is new before touching anything
 ```

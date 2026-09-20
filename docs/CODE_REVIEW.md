@@ -624,7 +624,7 @@ A release baseline cannot be built at all without the original signing key (see 
 
 Because the URL handling code is pure JVM logic, the phase-1 URL cleaner and URL normalizer were
 compiled and executed for real on JBR 21 using a standalone Gradle JVM project
-(`E:\Deepseek\linksi-urlcleaner-verify`, driven by `E:\Deepseek\Linksi\repo\tools\run-urlcleaner-tests.ps1`):
+(`<repo-parent>-urlcleaner-verify`, driven by `<repo-parent>\repo\tools\run-urlcleaner-tests.ps1`):
 **82 tests, 0 failures**. See `TEST_REPORT.md`. This proves the new logic and the `normalizeUrl`
 fix; it does **not** prove that the Android app still assembles.
 

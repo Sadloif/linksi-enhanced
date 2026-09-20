@@ -7,7 +7,7 @@ the investigation.
 
 **Written:** 2026-09-18, **updated** after an external review returned the findings in §10
 **App:** Linksi Enhanced `3.1.1-enhanced.3` (targetSdk 36)
-**Device:** OPPO `CPH2825` (marketing name not verified — the device only reports the model number),
+**Device:** OPPO the OPPO test device (marketing name not verified — the device only reports the model number),
 ColorOS 16, **Android 16 / SDK 36**, arm64, not rooted
 **Relevant code:** `app/src/main/java/com/linksi/app/enhanced/service/LinksiAccessibilityService.kt`
 

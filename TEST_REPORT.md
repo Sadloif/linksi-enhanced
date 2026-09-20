@@ -74,8 +74,8 @@ com.linksi.app.utils.UrlNormalizerTest: tests=22 failures=0 errors=0 skipped=0
 ```
 
 Verbatim from the harness summary line. Full console log:
-`E:\Deepseek\linksi-urlcleaner-verify\test-run.log`; JUnit XML under
-`E:\Deepseek\linksi-urlcleaner-verify\build\test-results\test\`.
+`<repo-parent>-urlcleaner-verify\test-run.log`; JUnit XML under
+`<repo-parent>-urlcleaner-verify\build\test-results\test\`.
 
 ### 2.4 Files under test
 
@@ -259,10 +259,10 @@ place so the progression is honest.
 
 | Problem | Resolution |
 |---|---|
-| No Android SDK | Installed into the workspace at `E:\Deepseek\Linksi\toolchain\android-sdk`: `platforms;android-34/35/36`, `build-tools;34.0.0/35.0.0/36.0.0`, `platform-tools`. Google's own `sdkmanager` cannot reach `dl.google.com` in this sandbox (`IO exception while downloading manifest`), so the component zips were fetched directly from the repository manifest with the JDK's HTTP client — script: `E:\Deepseek\Linksi\scripts\install-sdk-packages.ps1`. |
-| No `jlink` | The JetBrains Runtime bundled with PyCharm has no `jlink`, which AGP's `JdkImageTransform` requires. A real **Temurin JDK 17.0.20.1** was installed at `E:\Deepseek\Linksi\toolchain\jdk-17`. |
+| No Android SDK | Installed into the workspace at `<repo-parent>\toolchain\android-sdk`: `platforms;android-34/35/36`, `build-tools;34.0.0/35.0.0/36.0.0`, `platform-tools`. Google's own `sdkmanager` cannot reach `dl.google.com` in this sandbox (`IO exception while downloading manifest`), so the component zips were fetched directly from the repository manifest with the JDK's HTTP client — script: `<repo-parent>\scripts\install-sdk-packages.ps1`. |
+| No `jlink` | The JetBrains Runtime bundled with PyCharm has no `jlink`, which AGP's `JdkImageTransform` requires. A real **Temurin JDK 17.0.20.1** was installed at `<repo-parent>\toolchain\jdk-17`. |
 | AGP wrote `~/.android/debug.keystore` outside the workspace | `app/build.gradle` now supports an opt-in `DEBUG_KEYSTORE_PATH` override; unset, behaviour is unchanged. |
-| Release signing key absent | A private 4096-bit RSA release keystore was generated **outside the repository** (`E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks`, credentials in `KEYSTORE_CREDENTIALS.txt`). It is gitignored by construction and must be backed up; losing it means no future in-place update. |
+| Release signing key absent | A private 4096-bit RSA release keystore was generated **outside the repository** (`<repo-parent>\keys\linksi-enhanced-release.jks`, credentials in `KEYSTORE_CREDENTIALS.txt`). It is gitignored by construction and must be backed up; losing it means no future in-place update. |
 
 ### 9.2 Baseline APK archived (specification section 6.4)
 
@@ -275,7 +275,7 @@ size   : 24,141,629 bytes (23.02 MB)
 sha256 : 665F3EF1F952064C320F97BA746F7655E92AF79F57372C7457B1D61CC8D5CE1C
 ```
 
-Archived under `E:\Deepseek\Linksi\artifacts\baseline\` with a `.sha256` sidecar. It is a **debug** build:
+Archived under `<repo-parent>\artifacts\baseline\` with a `.sha256` sidecar. It is a **debug** build:
 no release build is possible from the baseline because the upstream signing key does not exist.
 
 ### 9.3 The unit tests now run in the real Android module
@@ -307,10 +307,10 @@ The APK also assembles: `:app:assembleDebug` produces `app-debug.apk`, 23.19 MB.
 ### 9.4 Build environment recipe (reproducible)
 
 ```powershell
-$env:JAVA_HOME='E:\Deepseek\Linksi\toolchain\jdk-17'                      # a real JDK: AGP needs jlink
-$env:GRADLE_USER_HOME='E:\Deepseek\Linksi\local\.gradle-home-main'    # keep caches inside the workspace
-$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\Linksi\local\.tmp'
-$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\Linksi\keys\debug.keystore'
+$env:JAVA_HOME='<repo-parent>\toolchain\jdk-17'                      # a real JDK: AGP needs jlink
+$env:GRADLE_USER_HOME='<repo-parent>\local\.gradle-home-main'    # keep caches inside the workspace
+$env:GRADLE_OPTS='-Djava.io.tmpdir=<repo-parent>\local\.tmp'
+$env:DEBUG_KEYSTORE_PATH='<repo-parent>\keys\debug.keystore'
 & .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain --no-watch-fs
 ```
 
@@ -380,7 +380,7 @@ CLEANED URL STORED: True
 RAW TRACKING URL STORED (should be False): False
 ```
 
-Evidence files: `E:\Deepseek\Linksi\evidence\` (`linksi-home.png`, `share-receiver.png`,
+Evidence files: `<repo-parent>\evidence\` (`linksi-home.png`, `share-receiver.png`,
 `linksi_db`, `logcat.txt`, `share-ui.xml`).
 
 ### 10.3 A caveat about `connectedDebugAndroidTest`
@@ -462,7 +462,7 @@ size, the location is a `content://` URI, and the published MediaStore row has `
 downloaded artifact was a 13,504-byte PNG that landed in `MediaStore.Downloads`. It skips (rather
 than fails) only when the failure is a network-class error.
 
-Screenshots in `E:\Deepseek\Linksi\evidence\`: `download-panel.png` (the live panel showing
+Screenshots in `<repo-parent>\evidence\`: `download-panel.png` (the live panel showing
 "Original quality / PNG · 13.2 KB" and a DOWNLOAD row), `download-panel-article.png` (an article URL
 correctly shows **no** download section), `link-options-sheet.png` (the entry row),
 `downloads-screen.png` (the downloads list).
@@ -836,7 +836,7 @@ Now:
 
 ### 15.4 yt-dlp's own options cannot bound this
 
-Research (recorded in `research\YTDLP_HANG_RESEARCH.md`) confirms the watchdog is the right layer.
+Research (recorded in `an external research note that is not in this repository`) confirms the watchdog is the right layer.
 `--socket-timeout` does reach `socket.settimeout`, so a *completely silent* read does raise and
 become retryable — but the downloader reads in blocks of up to 4 MiB and every arriving byte restarts
 the timer, so a **trickling** connection blocks forever with no output and a frozen `.part`. That is
@@ -2239,7 +2239,7 @@ BUILD SUCCESSFUL in 2m 24s (assembleRelease)
 
 **Worth knowing for the next session:** a daemon crash and a compile error both present as
 `BUILD FAILED`, and only the crash log distinguishes them. `hs_err_pid*.log` lands in
-`E:\Deepseek\` (the parent, not the repo). The fix is to serialise Gradle invocations and retry once,
+`<repo-parent-parent>\` (the parent, not the repo). The fix is to serialise Gradle invocations and retry once,
 which is the same advice the handover already carries for the shared-daemon case.
 
 ---
@@ -2387,7 +2387,7 @@ Window #7 Window{4d41744 u0 com.linksi.app.debug}:
 | It does not steal input | `NOT_FOCUSABLE`, `NOT_TOUCH_MODAL`, `canReceiveKeys()=false` |
 | It is actually drawn and not covered | `mHasSurface=true`, `isReadyForDisplay()=true`, `mObscured=false`, `mViewVisibility=0x0` |
 | It is on screen, at a sane place and size | 156×156 px at (900,722), sublayer 0 — a 72 dp circle in the upper-right of a 1080×2400 display |
-| **A human can see it** | screenshot `E:\Deepseek\Linksi\local\.probe\shots\bubble.png` — the purple-haloed Linksi mark floating over the launcher, upper right |
+| **A human can see it** | screenshot `<repo-parent>\local\.probe\shots\bubble.png` — the purple-haloed Linksi mark floating over the launcher, upper right |
 
 The screenshot is the decisive one, because it is the same composited framebuffer the user's eye gets.
 Every check above can in principle be satisfied by an invisible window; the screenshot cannot.
@@ -2599,10 +2599,10 @@ Everything the mapper is responsible for came through: title, uploader, duration
 
 | Link | Extracted | Formats |
 |---|---|---|
-| `tiktok.com/@sza_jarral/video/7675148855209512214` | `#onthisday` by `sza_jarral`, 205 s | 8 (up to 1026p) |
-| `tiktok.com/@emaankhan.official22/video/7671734941704768775` | by `emaankhan.official22`, 15 s | 8 (up to 1280p) |
-| `tiktok.com/@the.emanofficial/video/7676523077575920916` | `TikTok video #7676523077575920916`, 39 s | 8 (up to 1280p) |
-| `tiktok.com/@fatimaqueenf19/video/7559831138752285960` | `#fatime #qeeum …`, 4 formats | 4 |
+| `tiktok.com/@creator_a/video/7675148855209512214` | `#onthisday` by `creator_a`, 205 s | 8 (up to 1026p) |
+| `tiktok.com/@creator_b/video/7671734941704768775` | by `creator_b`, 15 s | 8 (up to 1280p) |
+| `tiktok.com/@creator_c/video/7676523077575920916` | `TikTok video #7676523077575920916`, 39 s | 8 (up to 1280p) |
+| `tiktok.com/@creator_d/video/7559831138752285960` | `#fatime #qeeum …`, 4 formats | 4 |
 | `youtube.com/shorts/i0VEon0agBE` | *The Navy's Logistical Nightmare in the Iran War*, 141 s | 42 (up to 1920p) |
 | `youtube.com/shorts/l1s7aOhPSGo` | *Florida's Malpractice Loophole Law*, 63 s | 47 (up to **3840p**) |
 | `youtube.com/shorts/6qR1BBKr4WE` | *Would you like to be friends with him?*, 174 s | **162** |
@@ -2642,8 +2642,8 @@ session over the same four URLs:
 
 | Link | `theOwnersRealLinksExtract…` | `everyNamedSiteIsEitherReadable…` |
 |---|---|---|
-| `tiktok.com/@sza_jarral/video/7675148855209512214` | **OK** — `#onthisday`, 8 formats | `EXTRACTOR_FAILED` |
-| `tiktok.com/@emaankhan.official22/video/7671734941704768775` | **OK** — 8 formats, 1280p | `EXTRACTOR_FAILED` |
+| `tiktok.com/@creator_a/video/7675148855209512214` | **OK** — `#onthisday`, 8 formats | `EXTRACTOR_FAILED` |
+| `tiktok.com/@creator_b/video/7671734941704768775` | **OK** — 8 formats, 1280p | `EXTRACTOR_FAILED` |
 | `youtube.com/shorts/i0VEon0agBE` | OK — 42 formats | OK — 42 formats |
 | `youtube.com/watch?v=LoLYw--s-5w` | OK — 43 formats | OK — 43 formats |
 
@@ -2734,7 +2734,7 @@ Titles, uploaders and durations all came through. Some highlights:
 
 | Link | Extracted |
 |---|---|
-| `instagram.com/reel/DdBla0_of1w/` | *Video by _.my_things_* by Neha — 13 formats up to **2560p** |
+| `instagram.com/reel/DdBla0_of1w/` | *Video by _.my_things_* — 13 formats up to **2560p** |
 | `reddit.com/r/therewasanattempt/s/mkWrTJXPHb` | *To harass people outside of an abortion clinic*, 13 s, 20 formats |
 | `reddit.com/r/ImTheMainCharacter/s/9x2Efr6KBw` | *Tourist disrespecting staff in a Thai hotel*, **593 s**, 17 formats |
 | `pin.it/3IuEwLXrU` | *Beautiful Moments*, 7 formats up to 1920p |
@@ -3122,7 +3122,7 @@ recorded commit, tree state and source timestamps do not line up is not evidence
 Completing the objective is not the same as having no limits, and the honest qualification is:
 
 - ~~**Nothing has run on the owner's actual phone.**~~ **Superseded on 2026-09-18.** The owner's OPPO
-  `CPH2825` (ColorOS 16, Android 16 / SDK 36) is now under test, and the results are in §47–§50: the
+  the OPPO test device (ColorOS 16, Android 16 / SDK 36) is now under test, and the results are in §47–§50: the
   accessibility service was found enabled-but-unbound, three switches defaulted off with no UI guidance,
   the status panel was wrong, clicks were being discarded before detection ran, and copy detection in
   browsers was shown to be a platform limit. Everything before §47 in this report is POCO X3 Pro
@@ -3141,7 +3141,7 @@ Completing the objective is not the same as having no limits, and the honest qua
 
 The objective was complete and verified, but every device result until now came from a POCO X3 Pro
 (Android 13 / MIUI 14) or a throwaway emulator. The owner then ran the **signed release APK** on his own
-OPPO Reno (model `CPH2825`, ColorOS 16, **Android 16 / API 36**) and reported that link-copy detection
+OPPO Reno (model the OPPO test device, ColorOS 16, **Android 16 / API 36**) and reported that link-copy detection
 and the floating bubble did nothing, with every permission he could find granted. This section is the
 first evidence from that device, and it changes two things: it identifies the cause, and it shows a real
 defect in how the feature is configured.
@@ -3229,7 +3229,7 @@ service's no-logging privacy promise is untouched.
 | Overlay permission | `SYSTEM_ALERT_WINDOW: allow` |
 | `POST_NOTIFICATIONS` | `granted=true` |
 | Release package | `com.linksi.app` vc23, `targetSdkVersion=36`, `lastUpdateTime=2026-09-18 11:12:07` |
-| Device | `CPH2825`, Android **16** (SDK 36), ColorOS 16 |
+| Device | the OPPO test device, Android **16** (SDK 36), ColorOS 16 |
 
 ### 47.6 Totals
 

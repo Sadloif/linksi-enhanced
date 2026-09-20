@@ -34,7 +34,7 @@ anything already pushed.** The owner asked to defer further pushes until the wor
 
 ## 2. Where everything is
 
-The project lives in one umbrella folder, `E:\Deepseek\Linksi\`:
+The project lives in one umbrella folder, `<repo-parent>\`:
 
 ```text
 repo\                      the git checkout          (branch enhanced/integration)
@@ -71,7 +71,7 @@ Current state of the checkout:
 
 **Two devices are normally attached**, and they answer different questions:
 
-| | POCO X3 Pro (`69ef2e21`, codename *vayu*) | Emulator (`emulator-5554`) |
+| | POCO X3 Pro (`<tablet-serial>`, codename *vayu*) | Emulator (`emulator-5554`) |
 |---|---|---|
 | OS / ABI | Android 13 (API 33), MIUI 14, arm64-v8a | Android 16 (API 36) userdebug, x86_64 |
 | Worth for | the arm64 payload, **a residential IP the five target sites do not block**, MIUI limits | root access, fast iteration, API 36 behaviour |
@@ -122,11 +122,11 @@ Everything below has evidence in `TEST_REPORT.md`; that file is the authority, n
 ### 4.1 Environment (this exact set; others fail)
 
 ```powershell
-$env:JAVA_HOME='E:\Deepseek\Linksi\toolchain\jdk-17'          # NOT the PyCharm JBR: it has no jlink
-$env:GRADLE_USER_HOME='E:\Deepseek\Linksi\local\.gradle-home-main'
-$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\Linksi\local\.tmp'
-$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\Linksi\keys\debug.keystore'
-$repo='E:\Deepseek\Linksi\repo'
+$env:JAVA_HOME='<repo-parent>\toolchain\jdk-17'          # NOT the PyCharm JBR: it has no jlink
+$env:GRADLE_USER_HOME='<repo-parent>\local\.gradle-home-main'
+$env:GRADLE_OPTS='-Djava.io.tmpdir=<repo-parent>\local\.tmp'
+$env:DEBUG_KEYSTORE_PATH='<repo-parent>\keys\debug.keystore'
+$repo='<repo-parent>\repo'
 ```
 
 `local.properties` already points `sdk.dir` at the relocated SDK. **Do not set
@@ -163,7 +163,7 @@ job can report "running" long after the build finished.
 ### 4.4 Release build (signed, archives every ABI split)
 
 ```powershell
-powershell -File E:\Deepseek\Linksi\repo\tools\build-release.ps1
+powershell -File <repo-parent>\repo\tools\build-release.ps1
 ```
 
 Runs tests and lint in **one Gradle invocation** and `assembleRelease` in a **separate** one — in a
@@ -174,11 +174,11 @@ and dies with `Unexpected failure during lint analysis ... Hilt_MainActivity.jav
 ### 4.5 Emulator (Android 16 / API 36, x86_64, WHPX-accelerated)
 
 ```powershell
-$env:ANDROID_SDK_ROOT='E:\Deepseek\Linksi\toolchain\android-sdk'
+$env:ANDROID_SDK_ROOT='<repo-parent>\toolchain\android-sdk'
 $env:ANDROID_HOME=$env:ANDROID_SDK_ROOT
-$env:ANDROID_AVD_HOME='E:\Deepseek\Linksi\local\.android-avd'
-$env:ANDROID_EMULATOR_HOME='E:\Deepseek\Linksi\local\.android-emulator'
-& 'E:\Deepseek\Linksi\toolchain\android-sdk\emulator\emulator.exe' -avd linksi36 `
+$env:ANDROID_AVD_HOME='<repo-parent>\local\.android-avd'
+$env:ANDROID_EMULATOR_HOME='<repo-parent>\local\.android-emulator'
+& '<repo-parent>\toolchain\android-sdk\emulator\emulator.exe' -avd linksi36 `
     -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics -port 5554
 ```
 
@@ -192,8 +192,8 @@ already-root; `su 0` works), which is how the raw yt-dlp experiments in §4.8 ar
 test failure). Install the APKs and drive the runner directly:
 
 ```powershell
-$adb='E:\Deepseek\Linksi\toolchain\android-sdk\platform-tools\adb.exe'
-$repo='E:\Deepseek\Linksi\repo'
+$adb='<repo-parent>\toolchain\android-sdk\platform-tools\adb.exe'
+$repo='<repo-parent>\repo'
 # emulator (x86_64):
 $apk='app\build\outputs\apk\debug\app-universal-debug.apk'
 # POCO X3 Pro (arm64):
@@ -251,8 +251,8 @@ This session's breakthrough came from running the app's *own* yt-dlp outside the
 cost seconds instead of a 90-second rebuild. On the emulator only (needs root):
 
 ```powershell
-# E:\Deepseek\Linksi\local\.probe\ytdlp-device-run.ps1
-powershell -File E:\Deepseek\Linksi\local\.probe\ytdlp-device-run.ps1 `
+# <repo-parent>\local\.probe\ytdlp-device-run.ps1
+powershell -File <repo-parent>\local\.probe\ytdlp-device-run.ps1 `
   -LogName myrun -TimeoutSeconds 300 `
   -YtDlpArgs '-F https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd'
 ```
@@ -296,7 +296,7 @@ the run logs `ytdlp-merge1/2/3.log`, which are the raw evidence for `TEST_REPORT
 | Lint crashes: `Unexpected failure during lint analysis of BubblePolicyTest.kt` | `checkTestSources = false` in `app/build.gradle`'s `lint` block (already set). `MissingTranslation` is also disabled — the baseline already failed on it |
 | Dozens of phantom `Unresolved reference` for real declarations | Corrupted shared Kotlin daemon. Add `-Dkotlin.compiler.execution.strategy=in-process`. **`SESSION_HANDOVER.md` v1 documented this but the commands were missing the flag, which cost an agent a failed build this session** |
 | Two Gradle invocations at once die with `Accessing unreadable inputs ... dirty-sources.txt` on `compileDebugKotlin` | Two agents (or a subagent and the main session) sharing one daemon. **Serialise Gradle; retry once unchanged rather than changing configuration** |
-| `BUILD FAILED` with `Gradle build daemon disappeared unexpectedly` | The daemon was killed by memory pressure (`insufficient memory for the Java Runtime Environment ... malloc failed`), not a compile error — the crash log `hs_err_pid*.log` lands in `E:\Deepseek\`, one level above the repo. Serialise Gradle and retry on a fresh daemon; the same script then succeeds unchanged (`TEST_REPORT.md` §36) |
+| `BUILD FAILED` with `Gradle build daemon disappeared unexpectedly` | The daemon was killed by memory pressure (`insufficient memory for the Java Runtime Environment ... malloc failed`), not a compile error — the crash log `hs_err_pid*.log` lands in `<repo-parent-parent>\`, one level above the repo. Serialise Gradle and retry on a fresh daemon; the same script then succeeds unchanged (`TEST_REPORT.md` §36) |
 | `sdkmanager` reports `IO exception while downloading manifest` | Its HTTP stack cannot reach Google here. Use `scripts\install-sdk-package.ps1`, which resolves archives from the repository manifests with the JDK's HTTP client. System images live in `sys-img\...\sys-img2-3.xml`, and their archive URLs are relative to *that* manifest's directory. Use `tar.exe`, not `Expand-Archive`, for the multi-GB Zip64 images |
 | `git push` dies with `sh.exe: couldn't create signal pipe` | The sandbox blocks the named pipes git's sh needs for credential helpers. Push with `-c credential.helper= -c core.askPass=` and `GIT_TERMINAL_PROMPT=0` |
 | PowerShell `Invoke-RestMethod` fails: `The underlying connection was closed` | schannel cannot handshake here. Use the JVM (`scripts\GitHubApi.java`) |
@@ -314,7 +314,7 @@ the run logs `ytdlp-merge1/2/3.log`, which are the raw evidence for `TEST_REPORT
 | `dumpsys window windows` "does not show overlay windows" on MIUI | **Wrong — it does.** The package lands on the `mOwnerUid=` line and `ty=APPLICATION_OVERLAY` several lines later inside one very long `mAttrs=` line, and MIUI lists framework windows first (the app overlay was `Window #7`). Find the block by its header, then read forward with `-Context 0,14` (`TEST_REPORT.md` §39.3). `SurfaceFlinger --list` genuinely is useless for this |
 | An `am instrument` run ends `INSTRUMENTATION_RESULT: shortMsg=Process crashed.` | Check whether **you** killed it: an `am force-stop` issued while the test is running tears the process down and reports exactly this. The run's own logcat still shows its passes (`TEST_REPORT.md` §39) |
 | `tools\build-release.ps1` fails at `:app:packageRelease` with `Unable to allocate 17024776 bytes` / `OutOfMemoryError`, or the daemon disappears | The release packaging (two ABI splits, one 125 MB) needs most of the daemon's 2 GB, and `build-release.ps1` runs `:app:testDebugUnitTest :app:lintDebug` **in the same daemon first**, so packaging starts on a heap the tests already filled. Run `powershell -File tools\build-release.ps1 -SkipChecks` (then run the gates separately) — it succeeded immediately on the first try after four failures. **Do not try to raise the heap: `-Xmx4096m` cannot even start on this machine** (`os::commit_memory … The paging file is too small`, G1 virtual space). 2 GB is the ceiling, not a modest default |
-| `:app:validateSigningRelease FAILED` right after `:app:preBuild` | You invoked `gradlew :app:assembleRelease` directly, so `KEYSTORE_PATH`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD` were never set. Those are supplied by `tools\build-release.ps1`, which reads them from `E:\Deepseek\Linksi\keys\`. Always build releases through the script |
+| `:app:validateSigningRelease FAILED` right after `:app:preBuild` | You invoked `gradlew :app:assembleRelease` directly, so `KEYSTORE_PATH`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD` were never set. Those are supplied by `tools\build-release.ps1`, which reads them from `<repo-parent>\keys\`. Always build releases through the script |
 | `:app:compileReleaseKotlin FAILED` with dozens of phantom `Unresolved reference` for declarations that certainly exist (`LinksTheme`, `buildPanelState`, `panelLabelFor`, …) while the **debug** variant compiles the same source cleanly | **Corrupted Kotlin daemon, not a code error.** Do not edit the source. Stop every daemon, then set `GRADLE_OPTS` to include `-Dkotlin.compiler.execution.strategy=in-process` and retry — that fixed it immediately on 2026-09-18 after the release build died once. Proving the source is fine first is cheap: `gradlew :app:compileDebugKotlin` succeeding while release fails is the signature |
 | `Markdown`/`TEST_REPORT.md` "file has not been read" when editing after a long gap | The session is tracking a stale read. Re-read the file (or a slice of it) before editing; the file itself is fine |
 | A link test fails with "the detector did not recognise a real video link as media" | Almost certainly a **dead link, not a defect**. `MediaExtractionResult.Unsupported` means either "no backend handles this URL" **or** "the engine refused it as not media" — a short link that redirects to the site's home page looks exactly like the latter. `realLinkUrls` entries can be retired at any time; check the engine's own message (`ERROR: Unsupported URL: …`) before touching the classifier. Don't repeat the mistake of asserting the detector failed when the engine refused (`TEST_REPORT.md` §42.4) |
@@ -380,7 +380,7 @@ Every failure was a property of the link or the network, not the app. Evidence: 
 §41–§42. Probe any new list with:
 
 ```powershell
-adb -s 69ef2e21 shell am instrument -w `
+adb -s <tablet-serial> shell am instrument -w `
   -e class com.linksi.app.RealSiteLinksInstrumentedTest `
   -e realLinkUrls "url,url,…" `
   com.linksi.app.debug.test/androidx.test.runner.AndroidJUnitRunner
@@ -395,7 +395,7 @@ with verified digests and signature).
 What follows is what remains: two items that need the owner or his hardware, and three that
 are depth or external.
 
-1. **CLOSED on 2026-09-18 — the owner's OPPO `CPH2825` (ColorOS 16 / Android 16) has been tested.** It
+1. **CLOSED on 2026-09-18 — the owner's OPPO the OPPO test device (ColorOS 16 / Android 16) has been tested.** It
    found four things the POCO never could, all fixed except the last: the accessibility service was
    **enabled but not bound** (ColorOS quirk, no force-stop needed); all three detection switches default
    to `false` and the UI never said two of them were required for detection; the status panel reported
@@ -427,19 +427,18 @@ are depth or external.
    per-feature branches (`feature/*`, `chore/github-actions`) are deliberately left untouched.
 
    Regenerate the release with `tools\build-release.ps1 -SkipChecks`, then follow `tools\github\README.md`.
-   The token stays at `E:\Deepseek\Linksi\keys\github-token.txt`, outside the repository.
+   The token stays at `<repo-parent>\keys\github-token.txt`, outside the repository.
 4. **The wrapper's process kill cannot be fixed from here.** `destroyProcessById` passes the
    library's own UUID to `pstree` (which does not exist on Android), and `grep -oP` is not in toybox,
    so only `Process.destroy()` — SIGTERM to the direct python child — ever runs, and descendants
    survive. The app works around it (SIGTERM, plus the interpreter closing FFmpeg's pipe) and checks
    the outcome in `YtDlpInterruptedDownloadTest`; a real fix means moving off 0.17.3 or vendoring
-   upstream PR #367. Recorded in `TEST_REPORT.md` §15.2 and `research\YTDLP_HANG_RESEARCH.md` §4.
+   upstream PR #367. Recorded in `TEST_REPORT.md` §15.2 and `an external research note that is not in this repository` §4.
 7. **`POST_NOTIFICATIONS` is granted on the POCO and confirmed by device state**, but the dialog in
    context (enable the setting → prompt; deny → download still works) has not been walked through on
    a device. §11 has the short manual script.
 
-The owner explicitly asked this session to assume full licence rights, so licensing is not tracked as
-an implementation blocker in this open list.
+The licence position is recorded in `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
 ## 7. Things that are deliberately NOT done
 
@@ -452,7 +451,7 @@ an implementation blocker in this open list.
   an app process risks signalling something it does not own; the reasoning is in `TEST_REPORT.md`
   §15.2.
 - `--downloader-args "ffmpeg_i:-rw_timeout 30000000"` (the only yt-dlp-side *real* read timeout,
-  per `research\YTDLP_HANG_RESEARCH.md`) is **not** set. It is a candidate, not a decision.
+  per `an external research note that is not in this repository`) is **not** set. It is a candidate, not a decision.
 
 ---
 
@@ -639,10 +638,10 @@ Three rules to carry over with it:
 
 ## 14. Ready-to-paste prompt for the next session
 
-> Continue the Linksi Enhanced private fork. Read `E:\Deepseek\Linksi\repo\SESSION_HANDOVER.md`
+> Continue the Linksi Enhanced private fork. Read `<repo-parent>\repo\SESSION_HANDOVER.md`
 > first — it has the layout, the exact build/emulator/device commands, the environment traps, the goal
 > text to recreate, and the prioritised open-work list. Then `TEST_REPORT.md` §19 (the site-engine
-> refresh and real Facebook extraction) and `research\YTDLP_HANG_RESEARCH.md`.
+> refresh and real Facebook extraction) and `an external research note that is not in this repository`.
 >
 > Create the goal using the verbatim objective in §13, with a 40-round budget. If `get_goal` reports
 > that no goal exists, recreate it and tell me — and note that a paused goal cannot be resumed by you;
@@ -697,13 +696,13 @@ against `git log -1 --format=%ci`. Full procedure in `BUILD_AND_RELEASE.md` §3.
 Two more build facts from the same round, both recorded in `BUILD_AND_RELEASE.md` §3.0:
 
 - The sandbox denies `%USERPROFILE%\.android\debug.keystore.lock`, so `assembleDebug` needs
-  `DEBUG_KEYSTORE_PATH=E:\Deepseek\Linksi\keys\debug.keystore` (alias `androiddebugkey`).
-- `GRADLE_USER_HOME` must be workspace-local; `E:\Deepseek\Linksi\local\.gradle-home-main` has the
+  `DEBUG_KEYSTORE_PATH=<repo-parent>\keys\debug.keystore` (alias `androiddebugkey`).
+- `GRADLE_USER_HOME` must be workspace-local; `<repo-parent>\local\.gradle-home-main` has the
   fullest cache and builds debug with `--offline`.
 
 ### 15.3 What is installed on the OPPO right now
 
-`3C761M001MS00000` (CPH2825, Android 16 / ColorOS 16), package `com.linksi.app.debug`:
+`<phone-serial>` (the test phone, Android 16 / ColorOS 16), package `com.linksi.app.debug`:
 
 - **versionCode 24 / versionName 3.2.0-enhanced.1**, installed 19:27:54 as an in-place upgrade.
 - The debug keystore is the same one that signed the previous install, which is why the upgrade kept
@@ -716,7 +715,7 @@ Two more build facts from the same round, both recorded in `BUILD_AND_RELEASE.md
   is not present in this build.
 - The app launches clean: no `FATAL`, `MainActivity` resumed.
 
-A local data safety net exists at `E:\Deepseek\Linksi\local\.probe\phone-data-backup\`
+A local data safety net exists at `<repo-parent>\local\.probe\phone-data-backup\`
 (`debug-data.tar`, `debug-prefs.tar`), taken with
 `adb exec-out run-as com.linksi.app.debug tar -cf - databases`. This works on ColorOS and is the
 cheap way to snapshot the database before any reinstall.
@@ -743,7 +742,7 @@ clipboard fallback cannot work. Share, paste and `ACTION_PROCESS_TEXT` are the r
 - Publish `v3.2.0-enhanced.1` as a **new** release, keeping `v3.1.1-enhanced.3` for rollback. The
   artifacts are built, signed and digest-verified but the upload is deliberately held back until the
   phone pass in §15.4 confirms the build is good.
-- Move `E:\Deepseek\Linksi\keys-backup-20260918\` outside `E:\Deepseek\Linksi\` so a delete of the
+- Move `<repo-parent>\keys-backup-20260918\` outside `<repo-parent>\` so a delete of the
   project folder cannot take the keystores with it.
 - The GitHub token is still embedded in `origin`'s URL in `.git/config`; it can be moved to a
   credential helper.

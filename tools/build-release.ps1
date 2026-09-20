@@ -10,14 +10,19 @@
     The signing password is read from the credentials file written when the keystore was generated
     and is passed to Gradle through environment variables. It is never printed and never echoed.
 
+.PARAMETER KeyDir
+    Directory holding the signing material, **outside the repository**. Defaults to `<repo>\..\keys`,
+    i.e. a `keys` directory beside the checkout. Pass it explicitly if yours lives elsewhere.
+
 .PARAMETER KeystorePath
-    The .jks file. Defaults to E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks.
+    The .jks file. Defaults to `<KeyDir>\linksi-enhanced-release.jks`.
 
 .PARAMETER CredentialsFile
     File produced alongside the keystore, containing the alias and passwords.
+    Defaults to `<KeyDir>\KEYSTORE_CREDENTIALS.txt`.
 
 .PARAMETER OutDir
-    Where the APK and checksum are archived. Defaults to E:\Deepseek\Linksi\artifacts\releases.
+    Where the APK and checksum are archived. Defaults to `<repo>\..\artifacts\releases`.
 
 .PARAMETER SkipChecks
     Skip tests and lint (use only for a quick rebuild; a release should not be produced this way).
@@ -28,9 +33,10 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot,
-    [string]$KeystorePath = 'E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks',
-    [string]$CredentialsFile = 'E:\Deepseek\Linksi\keys\KEYSTORE_CREDENTIALS.txt',
-    [string]$OutDir = 'E:\Deepseek\Linksi\artifacts\releases',
+    [string]$KeyDir,
+    [string]$KeystorePath,
+    [string]$CredentialsFile,
+    [string]$OutDir,
     [switch]$SkipChecks
 )
 
@@ -38,6 +44,17 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 $RepoRoot = (Resolve-Path $RepoRoot).Path
+
+# Signing material and release archives live beside the checkout, never inside it. These used to be
+# absolute paths for one machine; deriving them means the script works from any clone, and publishing
+# the repository no longer discloses where one particular machine kept its keystore.
+if (-not $KeyDir) {
+    $KeyDir = Join-Path (Split-Path $RepoRoot -Parent) 'keys'
+    if (-not (Test-Path $KeyDir)) { $KeyDir = Join-Path $RepoRoot 'keys' }
+}
+if (-not $KeystorePath)    { $KeystorePath    = Join-Path $KeyDir 'linksi-enhanced-release.jks' }
+if (-not $CredentialsFile) { $CredentialsFile = Join-Path $KeyDir 'KEYSTORE_CREDENTIALS.txt' }
+if (-not $OutDir)          { $OutDir          = Join-Path (Split-Path $RepoRoot -Parent) 'artifacts\releases' }
 
 # ── signing material ──────────────────────────────────────────────────────────
 if (-not (Test-Path $KeystorePath)) { throw "keystore not found: $KeystorePath" }
@@ -75,7 +92,14 @@ Write-Host ""
 $umbrella = Split-Path $RepoRoot -Parent
 if (-not $env:JAVA_HOME) {
     $toolchainJdk = Join-Path $umbrella 'toolchain\jdk-17'
-    $env:JAVA_HOME = if (Test-Path (Join-Path $toolchainJdk 'bin\java.exe')) { $toolchainJdk } else { 'E:\Deepseek\jdk-17' }
+    # Fall back to whatever JDK is on PATH rather than a hardcoded machine-specific directory.
+    if (Test-Path (Join-Path $toolchainJdk 'bin\java.exe')) {
+        $env:JAVA_HOME = $toolchainJdk
+    } else {
+        $javaCmd = Get-Command java -ErrorAction SilentlyContinue
+        if ($javaCmd) { $env:JAVA_HOME = Split-Path (Split-Path $javaCmd.Source -Parent) -Parent }
+    }
+    if (-not $env:JAVA_HOME) { throw 'JAVA_HOME is not set and no JDK was found on PATH.' }
 }
 if (-not $env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME = Join-Path $umbrella 'local\.gradle-home-main' }
 if (-not $env:GRADLE_OPTS) {

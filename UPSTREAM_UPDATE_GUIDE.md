@@ -49,7 +49,7 @@ Three more rules with concrete failure modes behind them:
 
 ```powershell
 # 0. Be in the private fork, on a clean tree
-Set-Location E:\Deepseek\Linksi\repo        # or wherever this fork is checked out
+Set-Location <repo-parent>\repo        # or wherever this fork is checked out
 git status                              # must be clean
 git branch --show-current               # must be main (or a release branch), not a feature branch
 
@@ -262,8 +262,8 @@ Run these on the update branch, after the cherry-picks/merge and before merging 
 
 ```powershell
 $env:JAVA_HOME        = 'C:\Program Files\JetBrains\PyCharm Community Edition 2024.2.4\jbr'
-$env:ANDROID_HOME     = 'E:\Deepseek\Linksi\toolchain\android-sdk'
-$env:GRADLE_USER_HOME = 'E:\Deepseek\Linksi\local\.gradle-home'
+$env:ANDROID_HOME     = '<repo-parent>\toolchain\android-sdk'
+$env:GRADLE_USER_HOME = '<repo-parent>\local\.gradle-home'
 
 # the whole module's unit tests
 .\gradlew.bat clean test

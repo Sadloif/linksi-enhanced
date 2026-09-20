@@ -94,8 +94,8 @@ class RealSiteLinksInstrumentedTest {
          * reconnaissance recorded in `TEST_REPORT.md` section 41.
          */
         val DEFAULT_URLS = listOf(
-            "https://www.tiktok.com/@sza_jarral/video/7675148855209512214",
-            "https://www.tiktok.com/@emaankhan.official22/video/7673528301624823048",
+            "https://www.tiktok.com/@creator_a/video/7675148855209512214",
+            "https://www.tiktok.com/@creator_b/video/7673528301624823048",
             "https://www.youtube.com/shorts/i0VEon0agBE",
             "https://www.youtube.com/watch?v=LoLYw--s-5w"
         )

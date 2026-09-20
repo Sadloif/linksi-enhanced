@@ -108,7 +108,7 @@ archived under `artifacts\releases\` — not yet distributed.
   the child promptly and rethrows; a watchdog-initiated stop remains a classified transient
   `NETWORK` result.
 
-- **The project moved into a single `E:\Deepseek\Linksi` umbrella folder**: `repo\` (the checkout),
+- **The project moved into a single `<repo-parent>` umbrella folder**: `repo\` (the checkout),
   `toolchain\`, `local\`, `keys\`, `artifacts\`, `evidence\`, `research\`, `scripts\` and
   `worktrees\`. Every hardcoded path in the documentation and helper scripts was rewritten, the
   merged worktrees were removed, and the build was re-verified afterwards.
@@ -436,7 +436,7 @@ Everything below is private fork work **on top of** upstream 3.1.1.
   is read from the credentials file, passed via environment variables only, never printed, and cleared
   before the script exits.
 - **Private release signing key** — 4096-bit RSA, generated **outside** the repository
-  (`E:\Deepseek\Linksi\keys\linksi-enhanced-release.jks`, SHA256 `1E:7F:FE:B4:...:96`, valid to 2054-02-02)
+  (`<repo-parent>\keys\linksi-enhanced-release.jks`, SHA256 `1E:7F:FE:B4:...:96`, valid to 2054-02-02)
   with credentials in a sibling file. It must be backed up: losing it means no future build can be
   installed as an update, and it is never committed.
 

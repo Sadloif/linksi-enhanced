@@ -14,16 +14,16 @@ Everything here was read out of the working tree at commit `6ff3784` on branch `
 
 | What | Absolute path |
 |---|---|
-| **Git checkout (the code)** | `E:\Deepseek\Linksi\repo` |
-| Build outputs | `E:\Deepseek\Linksi\repo\app\build\outputs\` |
-| JDK 17 (required) | `E:\Deepseek\Linksi\toolchain\jdk-17` |
-| Android SDK | `E:\Deepseek\Linksi\toolchain\android-sdk` |
-| Gradle cache | `E:\Deepseek\Linksi\local\.gradle-home-main` |
-| Signing keys (not in git) | `E:\Deepseek\Linksi\keys\` |
-| Signed release APKs | `E:\Deepseek\Linksi\artifacts\releases\` |
-| Device test scripts (not in git) | `E:\Deepseek\Linksi\local\.probe\` |
+| **Git checkout (the code)** | `<repo-parent>\repo` |
+| Build outputs | `<repo-parent>\repo\app\build\outputs\` |
+| JDK 17 (required) | `<repo-parent>\toolchain\jdk-17` |
+| Android SDK | `<repo-parent>\toolchain\android-sdk` |
+| Gradle cache | `<repo-parent>\local\.gradle-home-main` |
+| Signing keys (not in git) | `<repo-parent>\keys\` |
+| Signed release APKs | `<repo-parent>\artifacts\releases\` |
+| Device test scripts (not in git) | `<repo-parent>\local\.probe\` |
 
-The umbrella folder `E:\Deepseek\Linksi\` holds five siblings — `repo\`, `toolchain\`, `local\`,
+The umbrella folder `<repo-parent>\` holds five siblings — `repo\`, `toolchain\`, `local\`,
 `keys\`, `artifacts\`. **Only `repo\` is version controlled.** The scripts under `local\.probe\` are
 diagnostics written during testing and are deliberately outside the repo, so they cannot be mistaken for
 product code.
@@ -251,7 +251,7 @@ The refresh normally also happens automatically after `ensureReady()` succeeds, 
 | Kotlin / AGP / Gradle | 2.0.21 / 8.13.2 / wrapper 8.13 |
 | Annotation processing | KSP |
 | ABI splits | `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86` + a universal APK |
-| Signing | release keystore from `E:\Deepseek\Linksi\keys\` |
+| Signing | release keystore from `<repo-parent>\keys\` |
 
 Two environment facts that will otherwise cost you a build:
 
@@ -262,10 +262,10 @@ Two environment facts that will otherwise cost you a build:
 To produce the signed release APKs:
 
 ```powershell
-$env:JAVA_HOME='E:\Deepseek\Linksi\toolchain\jdk-17'
-$env:GRADLE_USER_HOME='E:\Deepseek\Linksi\local\.gradle-home-main'
-$env:GRADLE_OPTS='-Djava.io.tmpdir=E:\Deepseek\Linksi\local\.tmp'
-$env:DEBUG_KEYSTORE_PATH='E:\Deepseek\Linksi\keys\debug.keystore'
+$env:JAVA_HOME='<repo-parent>\toolchain\jdk-17'
+$env:GRADLE_USER_HOME='<repo-parent>\local\.gradle-home-main'
+$env:GRADLE_OPTS='-Djava.io.tmpdir=<repo-parent>\local\.tmp'
+$env:DEBUG_KEYSTORE_PATH='<repo-parent>\keys\debug.keystore'
 powershell -File tools\build-release.ps1
 ```
 
