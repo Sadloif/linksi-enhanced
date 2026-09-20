@@ -26,6 +26,13 @@ local.properties
 # Signing files
 *.jks
 *.keystore
+*.p12
+*.pfx
+# Deliberate exception, already tracked and intentionally kept: androidTest's resolver-test.p12 is a
+# self-signed throwaway for CN=127.0.0.1 whose password ("linkstest") is written in the test source
+# itself. It is not a secret - nothing outside that test trusts it - so ignoring it would only make
+# the instrumented test suite look like it has a missing resource. Ignore rules do not apply to files
+# already tracked, so this note is the documentation rather than a mechanism.
 
 # JVM crash dumps and JIT replay logs. The Gradle daemon is killed by memory pressure on this
 # machine often enough that these accumulate in the module directory; they are not source and
